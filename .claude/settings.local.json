@@ -1,0 +1,7 @@
+{
+  "enabledPlugins": {
+    "vue-skills-bundle@vue-skills": true,
+    "vue-best-practices@vue-skills": true,
+    "vue-router-best-practices@vue-skills": true
+  }
+}

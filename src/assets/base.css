@@ -1,0 +1,41 @@
+/* ============================================================================
+ * base.css —— 全局基础样式
+ * --------------------------------------------------------------------------
+ * 目标：抹平浏览器默认差异，定下深色背景与中文字体栈基线；
+ *      具体页面样式由各 *.vue 文件 scoped 内自治。
+ * ========================================================================== */
+
+/* 统一盒模型为 border-box：padding/border 不会再撑爆元素宽度 */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* 清除默认 margin，让 #app 占满整个视口 */
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #06070f; /* 与登录页底色一致，避免首屏闪白 */
+}
+
+/* 字体抗锯齿 + 系统字体回退栈（优先英文 Inter，再回退到苹方/微软雅黑/系统默认） */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+}
+
+/* 链接默认继承文字颜色，避免不同页面里反复重置 */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* 按钮继承字体，避免操作系统默认字体打破整体风格 */
+button {
+  font-family: inherit;
+}
