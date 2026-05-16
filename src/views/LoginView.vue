@@ -1,3 +1,20 @@
+<!--
+  LoginView.vue —— 大屏登录页
+  ----------------------------------------------------------------------------
+  视觉：左右双栏布局
+    · 左侧 hero：品牌 + Slogan + 卖点（深色渐变 + 流动光斑 + 网格背景）
+    · 右侧表单：玻璃质感卡片（backdrop-filter blur）
+  交互：单一密码字段，自动切换两种模式
+    · INIT  ：首次启动，引导设置初始管理员密码（额外要求确认密码）
+    · LOGIN ：日常登录
+  状态机：
+    1. mounted → checkInitialPassword() 决定首屏模式
+    2. 提交时根据 mode 走不同接口，并对业务 code 做兜底纠错：
+         · code=1001 设置接口提示「密码已设置」→ 强制切回 LOGIN
+         · code=1000 登录接口提示「未初始化」  → 强制切回 INIT
+       这一双向兜底保证「前端模式判断」与「后端真实状态」不会因首屏接口偶发失败而错位
+-->
+
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -12,20 +29,24 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
+// 两种 UI 模式：初始化密码 / 正常登录
 const MODE = { LOGIN: 'login', INIT: 'init' }
 
-const mode = ref(MODE.LOGIN)
-const checking = ref(true)
-const submitting = ref(false)
-const errorMsg = ref('')
-const showPwd = ref(false)
-const showPwd2 = ref(false)
+// ───── 响应式状态 ─────
+const mode = ref(MODE.LOGIN) // 当前 UI 模式（首屏被 detectMode 覆盖）
+const checking = ref(true)   // 首屏是否还在请求 initial-password
+const submitting = ref(false) // 表单是否正在提交
+const errorMsg = ref('')     // 表单顶部的错误提示
+const showPwd = ref(false)   // 密码输入框：明文/密文切换
+const showPwd2 = ref(false)  // 确认密码输入框：明文/密文切换
 
+// 表单数据（reactive 适合多字段对象）
 const form = reactive({
   password: '',
   confirm: '',
 })
 
+// ───── 计算属性：随 mode 自适应的文案 ─────
 const title = computed(() =>
   mode.value === MODE.INIT ? '初始化系统密码' : '欢迎回来',
 )
@@ -38,6 +59,10 @@ const submitText = computed(() =>
   mode.value === MODE.INIT ? '设置密码并登录' : '登 录',
 )
 
+// 提交按钮可用条件：
+// 1. 没有正在提交
+// 2. 密码至少 6 位（基础安全约束）
+// 3. 初始化模式下两次密码必须一致
 const canSubmit = computed(() => {
   if (submitting.value) return false
   if (!form.password || form.password.length < 6) return false
@@ -45,27 +70,33 @@ const canSubmit = computed(() => {
   return true
 })
 
+// ───── 首屏：调用 GET /login/initial-password 判定模式 ─────
 async function detectMode() {
   checking.value = true
   errorMsg.value = ''
   try {
     const res = await checkInitialPassword()
+    // 后端约定：data.initialized=true 表示已存在密码
     const initialized = res?.data?.initialized
     mode.value = initialized ? MODE.LOGIN : MODE.INIT
   } catch (e) {
+    // 接口异常时不强行选择模式，沿用默认 LOGIN 并提示用户
     errorMsg.value = e?.message || '无法连接服务，请稍后重试'
   } finally {
     checking.value = false
   }
 }
 
+// ───── 提交：根据当前模式调对应接口，并对业务 code 做兜底 ─────
 async function onSubmit() {
   if (!canSubmit.value) return
   errorMsg.value = ''
   submitting.value = true
   try {
+    // 1) 初始化模式：先调 POST /login/password
     if (mode.value === MODE.INIT) {
       const initRes = await setInitialPassword(form.password)
+      // 业务码 1001：后端告知密码已经设置 → 强制切回登录模式
       if (initRes?.code === LoginCode.PASSWORD_ALREADY_SET) {
         mode.value = MODE.LOGIN
         errorMsg.value = '系统密码已存在，请直接登录'
@@ -75,9 +106,12 @@ async function onSubmit() {
         errorMsg.value = initRes?.msg || '初始化失败，请重试'
         return
       }
+      // 初始化成功后继续走登录流程，给用户「一键完成」的体验
     }
 
+    // 2) 登录：POST /login
     const loginRes = await auth.login(form.password)
+    // 业务码 1000：后端告知尚未初始化 → 切回初始化模式
     if (loginRes?.code === LoginCode.NO_INITIAL_PASSWORD) {
       mode.value = MODE.INIT
       errorMsg.value = '系统尚未初始化，请先设置初始密码'
@@ -88,21 +122,25 @@ async function onSubmit() {
       return
     }
 
+    // 3) 登录成功：回跳 query.redirect 指向的页面，缺省进首页
     const redirect =
       typeof route.query.redirect === 'string' ? route.query.redirect : '/'
     router.replace(redirect)
   } catch (e) {
+    // HTTP/网络层异常（已被 http.js 归一化）
     errorMsg.value = e?.message || '请求异常，请稍后再试'
   } finally {
     submitting.value = false
   }
 }
 
+// 组件挂载后立即检测系统状态
 onMounted(detectMode)
 </script>
 
 <template>
   <main class="login-page">
+    <!-- 背景装饰层：三个高斯模糊光斑 + 网格叠加，纯 CSS 实现，不影响交互 -->
     <div class="bg-decor">
       <span class="blob blob-a"></span>
       <span class="blob blob-b"></span>
@@ -110,8 +148,10 @@ onMounted(detectMode)
       <div class="grid-overlay"></div>
     </div>
 
+    <!-- 左侧 hero：品牌、Slogan、卖点 -->
     <section class="hero">
       <header class="brand">
+        <!-- 品牌 logo：内联 SVG（一本展开的书+下划线），无外部资源依赖 -->
         <span class="brand-mark" aria-hidden="true">
           <svg viewBox="0 0 32 32" width="28" height="28">
             <path
@@ -141,6 +181,7 @@ onMounted(detectMode)
           为创作者打造的 AI 小说工作台，沉浸式写作 · 智能续写 · 角色与世界观协同。
         </p>
 
+        <!-- 卖点列表：作为信任背书，避免左侧空旷 -->
         <ul class="feature-list">
           <li><i></i>多模型协同：剧情、人设、对白分轨生成</li>
           <li><i></i>世界观沙盒：角色与设定可被精准引用</li>
@@ -151,7 +192,9 @@ onMounted(detectMode)
       <footer class="hero-foot">© {{ new Date().getFullYear() }} Novels · AI Studio</footer>
     </section>
 
+    <!-- 右侧表单卡片 -->
     <section class="panel">
+      <!-- is-init 类只在初始化模式生效，可用于细微的视觉反馈 -->
       <div class="card" :class="{ 'is-init': mode === MODE.INIT }">
         <div class="card-head">
           <p class="eyebrow">{{ mode === MODE.INIT ? 'FIRST RUN' : 'SIGN IN' }}</p>
@@ -160,6 +203,7 @@ onMounted(detectMode)
         </div>
 
         <form class="card-form" @submit.prevent="onSubmit">
+          <!-- 密码字段 -->
           <label class="field">
             <span class="field-label">{{ mode === MODE.INIT ? '设置密码' : '管理员密码' }}</span>
             <div class="field-control">
@@ -170,6 +214,7 @@ onMounted(detectMode)
                 autocomplete="current-password"
                 :disabled="checking || submitting"
               />
+              <!-- 明文/密文切换按钮，按钮 type=button 防止触发 form submit -->
               <button
                 type="button"
                 class="eye"
@@ -181,6 +226,7 @@ onMounted(detectMode)
             </div>
           </label>
 
+          <!-- 确认密码：仅初始化模式出现 -->
           <label v-if="mode === MODE.INIT" class="field">
             <span class="field-label">确认密码</span>
             <div class="field-control">
@@ -200,19 +246,23 @@ onMounted(detectMode)
                 {{ showPwd2 ? '隐藏' : '显示' }}
               </button>
             </div>
+            <!-- 实时校验：两次输入不一致时立刻提示，不必等点提交 -->
             <span
               v-if="form.confirm && form.confirm !== form.password"
               class="field-hint error"
             >两次输入的密码不一致</span>
           </label>
 
+          <!-- 顶部错误条（含网络异常 + 业务错误） -->
           <p v-if="errorMsg" class="form-error" role="alert">{{ errorMsg }}</p>
 
+          <!-- 提交按钮：禁用条件由 canSubmit 决定 -->
           <button class="submit" type="submit" :disabled="!canSubmit">
             <span v-if="submitting" class="loader" aria-hidden="true"></span>
             <span>{{ submitting ? '处理中…' : submitText }}</span>
           </button>
 
+          <!-- 底部辅助文案：随状态变化 -->
           <p v-if="checking" class="checking-tip">正在检测系统状态…</p>
           <p v-else-if="mode === MODE.INIT" class="footer-tip">
             初始化完成后将自动登录，请妥善保管密码——它无法找回。
@@ -225,29 +275,32 @@ onMounted(detectMode)
 </template>
 
 <style scoped>
+/* ─── 整体布局：左右双栏；左侧权重稍大留给品牌，右侧固定卡片宽度 ─── */
 .login-page {
   position: relative;
   min-height: 100vh;
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(440px, 0.9fr);
+  /* 主色调：左上紫蓝 → 中间深蓝 → 右下近黑，形成自然光感 */
   background: radial-gradient(120% 80% at 0% 0%, #1b1f4a 0%, #0b0f24 55%, #06070f 100%);
   color: #e7e9f5;
   overflow: hidden;
   font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
 }
 
+/* ─── 背景装饰：模糊光斑 + 细网格，制造科幻/灵感氛围 ─── */
 .bg-decor {
   position: absolute;
   inset: 0;
-  pointer-events: none;
+  pointer-events: none; /* 装饰层不能拦截鼠标 */
 }
 .blob {
   position: absolute;
   border-radius: 50%;
-  filter: blur(90px);
+  filter: blur(90px); /* 90px 模糊形成柔和光斑 */
   opacity: 0.55;
-  mix-blend-mode: screen;
-  animation: float 18s ease-in-out infinite;
+  mix-blend-mode: screen; /* screen 混合模式让光斑相互叠加更亮 */
+  animation: float 18s ease-in-out infinite; /* 缓慢漂浮，避免抢戏 */
 }
 .blob-a {
   width: 520px;
@@ -262,7 +315,7 @@ onMounted(detectMode)
   right: -80px;
   top: 18%;
   background: radial-gradient(circle, #00d4ff 0%, transparent 60%);
-  animation-delay: -6s;
+  animation-delay: -6s; /* 错峰运动，避免三个光斑同步 */
 }
 .blob-c {
   width: 580px;
@@ -272,6 +325,7 @@ onMounted(detectMode)
   background: radial-gradient(circle, #ff6dd6 0%, transparent 60%);
   animation-delay: -12s;
 }
+/* 半透明网格：用 mask 让中心实、边缘虚，形成「视觉聚焦」 */
 .grid-overlay {
   position: absolute;
   inset: 0;
@@ -291,7 +345,7 @@ onMounted(detectMode)
   }
 }
 
-/* hero */
+/* ─── 左侧 hero 区 ─── */
 .hero {
   position: relative;
   padding: 56px 80px;
@@ -306,6 +360,7 @@ onMounted(detectMode)
   font-weight: 600;
   letter-spacing: 0.06em;
 }
+/* 品牌 logo 容器：渐变色填充 + 阴影，营造发光质感 */
 .brand-mark {
   display: inline-flex;
   align-items: center;
@@ -325,6 +380,7 @@ onMounted(detectMode)
   margin: 0 4px;
 }
 
+/* 主标题：clamp 让字号随视口自适应，避免极大屏过小或小屏溢出 */
 .hero-copy h1 {
   font-size: clamp(40px, 4.4vw, 64px);
   line-height: 1.15;
@@ -332,6 +388,7 @@ onMounted(detectMode)
   font-weight: 700;
   letter-spacing: 0.01em;
 }
+/* accent：渐变文字，用 background-clip:text 实现 */
 .accent {
   background: linear-gradient(120deg, #00e6ff, #b78bff 60%, #ff8fd1);
   -webkit-background-clip: text;
@@ -359,6 +416,7 @@ onMounted(detectMode)
   color: rgba(231, 233, 245, 0.82);
   font-size: 15px;
 }
+/* 小圆点用渐变 + 阴影模拟发光效果，比纯色更精致 */
 .feature-list i {
   width: 8px;
   height: 8px;
@@ -373,7 +431,7 @@ onMounted(detectMode)
   color: rgba(231, 233, 245, 0.4);
 }
 
-/* panel */
+/* ─── 右侧表单面板 ─── */
 .panel {
   position: relative;
   display: flex;
@@ -381,6 +439,7 @@ onMounted(detectMode)
   justify-content: center;
   padding: 40px 64px;
 }
+/* 玻璃质感卡片：半透明背景 + backdrop-filter 模糊 */
 .card {
   position: relative;
   width: 100%;
@@ -390,12 +449,13 @@ onMounted(detectMode)
   background: rgba(15, 19, 44, 0.55);
   border: 1px solid rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(22px) saturate(160%);
-  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%); /* Safari 兼容 */
   box-shadow:
-    0 30px 80px rgba(2, 4, 18, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    0 30px 80px rgba(2, 4, 18, 0.55), /* 大投影制造悬浮感 */
+    inset 0 1px 0 rgba(255, 255, 255, 0.08); /* 顶部高光线 */
   transition: transform 0.4s ease;
 }
+/* 卡片渐变边框：用伪元素铺渐变 + mask 挖空内部，实现单层 1px 渐变描边 */
 .card::before {
   content: '';
   position: absolute;
@@ -411,7 +471,7 @@ onMounted(detectMode)
   pointer-events: none;
 }
 .card.is-init {
-  transform: translateY(-2px);
+  transform: translateY(-2px); /* 初始化模式微抬，暗示「特殊状态」 */
 }
 
 .eyebrow {
@@ -447,6 +507,7 @@ onMounted(detectMode)
   letter-spacing: 0.04em;
   color: rgba(231, 233, 245, 0.7);
 }
+/* 输入框外壳：聚焦时显示青色光环 */
 .field-control {
   position: relative;
   display: flex;
@@ -462,7 +523,7 @@ onMounted(detectMode)
 .field-control:focus-within {
   border-color: rgba(0, 212, 255, 0.7);
   background: rgba(0, 212, 255, 0.06);
-  box-shadow: 0 0 0 4px rgba(0, 212, 255, 0.12);
+  box-shadow: 0 0 0 4px rgba(0, 212, 255, 0.12); /* 外发光环 */
 }
 .field-control input {
   flex: 1;
@@ -497,6 +558,7 @@ onMounted(detectMode)
   color: #ff7aa2;
 }
 
+/* 错误条：低饱和度红，避免视觉过于刺眼 */
 .form-error {
   margin: 0;
   padding: 10px 14px;
@@ -507,6 +569,7 @@ onMounted(detectMode)
   font-size: 13px;
 }
 
+/* 主按钮：渐变背景 + 阴影，hover 时上浮 1px 模拟实体感 */
 .submit {
   margin-top: 6px;
   position: relative;
@@ -542,6 +605,7 @@ onMounted(detectMode)
   opacity: 0.55;
   box-shadow: none;
 }
+/* 提交按钮内的转圈 loader */
 .loader {
   width: 14px;
   height: 14px;
@@ -565,6 +629,7 @@ onMounted(detectMode)
   letter-spacing: 0.02em;
 }
 
+/* 窄屏（侧屏、半屏、平板横屏）兼容：双栏退化为单栏 */
 @media (max-width: 1024px) {
   .login-page {
     grid-template-columns: 1fr;

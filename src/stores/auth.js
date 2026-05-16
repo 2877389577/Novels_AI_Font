@@ -1,53 +1,57 @@
 // ============================================================================
 // auth.js —— 全局登录态 Pinia store
 // ----------------------------------------------------------------------------
-// 使用 Pinia 的 setup-style 写法（与 Vue 3 Composition API 风格一致）：
-//   - state  → ref()
-//   - getter → computed()
-//   - action → 普通函数
-// 持久化策略：token 同步写入 localStorage，刷新页面后仍能保持登录态。
+// 鉴权模型（本项目特有）：
+//   后端用 Session + Cookie 管理登录态，**前端不持有 token**。
+//   本 store 仅维护一个「是否已登录」的标记，用于路由守卫与 UI 显示。
+//   真正的鉴权全靠 axios 带上 session cookie 后由后端校验。
+//
+// 持久化策略：
+//   用 sessionStorage 而非 localStorage —— 关闭浏览器时自动清空，与后端
+//   session 的寿命一致，避免出现「前端以为登录、后端 session 已失效」的错位。
+//   刷新页面（不关浏览器）时仍能恢复登录态，符合直觉。
 // ============================================================================
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { login as loginApi } from '@/api/login'
 
-// localStorage 中保存 token 用的 key，单独提为常量避免拼写错误
-const TOKEN_KEY = 'novels_ai_token'
+// sessionStorage 中保存登录标记用的 key
+const LOGGED_FLAG_KEY = 'novels_ai_logged_in'
 
 export const useAuthStore = defineStore('auth', () => {
-  // token：初始化时从 localStorage 恢复，避免刷新后丢登录态
-  const token = ref(localStorage.getItem(TOKEN_KEY) || '')
+  // 登录标记：初始化时从 sessionStorage 恢复，避免刷新页面后误判为未登录
+  const loggedFlag = ref(sessionStorage.getItem(LOGGED_FLAG_KEY) === '1')
 
-  // 是否已登录：只看 token 是否存在
-  const isLoggedIn = computed(() => Boolean(token.value))
+  // 是否已登录：仅看本地标记；真鉴权由后端 cookie 完成
+  const isLoggedIn = computed(() => loggedFlag.value)
 
-  // 统一收口 token 的写入/清除，同时同步 localStorage
-  function setToken(value) {
-    token.value = value || ''
+  // 统一收口标记的写入/清除，同时同步 sessionStorage
+  function setLoggedIn(value) {
+    loggedFlag.value = Boolean(value)
     if (value) {
-      localStorage.setItem(TOKEN_KEY, value)
+      sessionStorage.setItem(LOGGED_FLAG_KEY, '1')
     } else {
-      localStorage.removeItem(TOKEN_KEY)
+      sessionStorage.removeItem(LOGGED_FLAG_KEY)
     }
   }
 
-  // 执行登录：成功后写入 token；token 字段名后端如尚未约定，先用占位
-  // 后端正式返回 token 后只改这里这一行，组件层完全无感
+  // 执行登录：成功后置位本地标记，后端会通过 Set-Cookie 下发 session
   async function login(password) {
     const res = await loginApi(password)
     if (res?.code === 0) {
-      const next = res.data?.token || `session-${Date.now()}`
-      setToken(next)
+      setLoggedIn(true)
     }
     // 把后端原始响应抛回去，让组件根据 code 做更精细的分流（例如 code=1000）
     return res
   }
 
-  // 退出登录：清空 token + localStorage
+  // 退出登录：清空本地标记
+  // 注：真正的 session 失效应由后端登出接口完成；当前后端尚未提供该接口，
+  // 仅清前端标记即可让路由守卫拦截后续访问。
   function logout() {
-    setToken('')
+    setLoggedIn(false)
   }
 
-  return { token, isLoggedIn, login, logout, setToken }
+  return { isLoggedIn, login, logout, setLoggedIn }
 })

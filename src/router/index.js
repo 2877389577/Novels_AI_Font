@@ -22,16 +22,30 @@ const router = createRouter({
       meta: { public: true, title: '登录 · AI 小说系统' },
     },
     {
-      // 工作台首页：登录后跳转目标
+      // 根路径 → 重定向到书架，让登录后默认看到的就是核心业务页
       path: '/',
-      name: 'home',
-      component: () => import('@/views/HomeView.vue'),
-      meta: { title: '工作台 · AI 小说系统' },
+      redirect: { name: 'shelf' },
     },
     {
-      // 兜底路由：任意未知路径回到首页（首页本身受守卫保护）
+      // 书架：业务主入口，登录后默认落地
+      path: '/shelf',
+      name: 'shelf',
+      component: () => import('@/views/ShelfView.vue'),
+      meta: { title: '书架 · AI 小说系统' },
+    },
+    {
+      // 小说详情页：编辑/删除单本小说
+      path: '/novel/:id(\\d+)',
+      name: 'novel-detail',
+      component: () => import('@/views/NovelDetailView.vue'),
+      meta: { title: '小说详情 · AI 小说系统' },
+      // 把 :id 作为 props.id 注入组件，避免组件里再读 useRoute
+      props: (route) => ({ id: Number(route.params.id) }),
+    },
+    {
+      // 兜底路由：任意未知路径回到书架（书架本身受守卫保护）
       path: '/:pathMatch(.*)*',
-      redirect: '/',
+      redirect: '/shelf',
     },
   ],
 })
@@ -39,7 +53,7 @@ const router = createRouter({
 // 全局前置守卫：
 // 1. 同步页面 title
 // 2. 未登录访问受保护页面 → 跳登录页，并把目标路径放到 query.redirect 以便回跳
-// 3. 已登录用户再访问登录页 → 直接跳工作台，避免来回切换
+// 3. 已登录用户再访问登录页 → 直接跳书架，避免来回切换
 router.beforeEach((to) => {
   const auth = useAuthStore()
   if (to.meta?.title) {
@@ -49,7 +63,7 @@ router.beforeEach((to) => {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
   if (to.name === 'login' && auth.isLoggedIn) {
-    return { name: 'home' }
+    return { name: 'shelf' }
   }
   return true
 })

@@ -1,6 +1,12 @@
 // ============================================================================
 // http.js —— 全局 axios 实例
 // ----------------------------------------------------------------------------
+// 鉴权模型（本项目特有）：
+//   后端使用 HTTP Session + Cookie 管理登录态，**前端不持有 token**。
+//   - 必须开启 withCredentials，浏览器才会在跨域请求里自动带上 session cookie
+//   - 不要附加 Authorization / Bearer，没意义且会引导后续维护者误以为存在 token 流程
+//   - 关闭浏览器后 session 自动失效（设计意图），符合「每次会话独立」的需求
+//
 // 设计要点：
 // 1. baseURL 默认走相对路径 /api/v1，配合 vite.config.js 的 proxy 转发到后端
 //    localhost:8080，避免在前端代码中写死后端地址，方便环境切换。
@@ -17,22 +23,12 @@ const http = axios.create({
   // 优先读环境变量，便于线上使用 .env 注入；缺省走 vite proxy
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
   timeout: 15000,
+  // 关键：让浏览器在请求里自动带上后端下发的 session cookie
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 })
-
-// 请求拦截器：若本地已存在 token，则自动附加 Authorization 头
-http.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('novels_ai_token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-    return config
-  },
-  (error) => Promise.reject(error),
-)
 
 // 响应拦截器：
 // - 成功：剥掉 axios 外壳，直接返回后端 body（common.Response）
