@@ -19,11 +19,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import {
-  LoginCode,
-  checkInitialPassword,
-  setInitialPassword,
-} from '@/api/login'
+import { LoginCode, checkInitialPassword, setInitialPassword } from '@/api/login'
 
 const route = useRoute()
 const router = useRouter()
@@ -34,11 +30,11 @@ const MODE = { LOGIN: 'login', INIT: 'init' }
 
 // ───── 响应式状态 ─────
 const mode = ref(MODE.LOGIN) // 当前 UI 模式（首屏被 detectMode 覆盖）
-const checking = ref(true)   // 首屏是否还在请求 initial-password
+const checking = ref(true) // 首屏是否还在请求 initial-password
 const submitting = ref(false) // 表单是否正在提交
-const errorMsg = ref('')     // 表单顶部的错误提示
-const showPwd = ref(false)   // 密码输入框：明文/密文切换
-const showPwd2 = ref(false)  // 确认密码输入框：明文/密文切换
+const errorMsg = ref('') // 表单顶部的错误提示
+const showPwd = ref(false) // 密码输入框：明文/密文切换
+const showPwd2 = ref(false) // 确认密码输入框：明文/密文切换
 
 // 表单数据（reactive 适合多字段对象）
 const form = reactive({
@@ -47,17 +43,13 @@ const form = reactive({
 })
 
 // ───── 计算属性：随 mode 自适应的文案 ─────
-const title = computed(() =>
-  mode.value === MODE.INIT ? '初始化系统密码' : '欢迎回来',
-)
+const title = computed(() => (mode.value === MODE.INIT ? '初始化系统密码' : '欢迎回来'))
 const subtitle = computed(() =>
   mode.value === MODE.INIT
     ? '首次启动，请为管理员设置一个安全的访问密码'
     : '使用管理员密码进入 AI 小说工作台',
 )
-const submitText = computed(() =>
-  mode.value === MODE.INIT ? '设置密码并登录' : '登 录',
-)
+const submitText = computed(() => (mode.value === MODE.INIT ? '设置密码并登录' : '登 录'))
 
 // 提交按钮可用条件：
 // 1. 没有正在提交
@@ -123,8 +115,7 @@ async function onSubmit() {
     }
 
     // 3) 登录成功：回跳 query.redirect 指向的页面，缺省进首页
-    const redirect =
-      typeof route.query.redirect === 'string' ? route.query.redirect : '/'
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
     router.replace(redirect)
   } catch (e) {
     // HTTP/网络层异常（已被 http.js 归一化）
@@ -139,13 +130,18 @@ onMounted(detectMode)
 </script>
 
 <template>
-  <main class="login-page">
+  <!-- v-pointer-glow 写入 --gx/--gy 等变量到根元素，
+       供下面的 .cursor-spot / .card 等子层用 radial-gradient 消费。
+       页面级反馈：整屏跟随的柔和光斑（cursor-spot）。 -->
+  <main v-pointer-glow class="login-page">
     <!-- 背景装饰层：三个高斯模糊光斑 + 网格叠加，纯 CSS 实现，不影响交互 -->
     <div class="bg-decor">
       <span class="blob blob-a"></span>
       <span class="blob blob-b"></span>
       <span class="blob blob-c"></span>
       <div class="grid-overlay"></div>
+      <!-- 跟随鼠标的全屏柔光：消费 .login-page 上 --gx/--gy（相对页面） -->
+      <div class="cursor-spot" aria-hidden="true"></div>
     </div>
 
     <!-- 左侧 hero：品牌、Slogan、卖点 -->
@@ -177,9 +173,7 @@ onMounted(detectMode)
           让灵感<span class="accent">无限延展</span><br />
           让故事<span class="accent">自然生长</span>
         </h1>
-        <p>
-          为创作者打造的 AI 小说工作台，沉浸式写作 · 智能续写 · 角色与世界观协同。
-        </p>
+        <p>为创作者打造的 AI 小说工作台，沉浸式写作 · 智能续写 · 角色与世界观协同。</p>
 
         <!-- 卖点列表：作为信任背书，避免左侧空旷 -->
         <ul class="feature-list">
@@ -192,10 +186,16 @@ onMounted(detectMode)
       <footer class="hero-foot">© {{ new Date().getFullYear() }} Novels · AI Studio</footer>
     </section>
 
-    <!-- 右侧表单卡片 -->
+    <!-- 右侧表单卡片
+         单独再挂一个 v-pointer-glow.tilt，让卡片读自己内部坐标，
+         实现「微倾斜 + 卡内高光」的局部反馈，不依赖外层。 -->
     <section class="panel">
       <!-- is-init 类只在初始化模式生效，可用于细微的视觉反馈 -->
-      <div class="card" :class="{ 'is-init': mode === MODE.INIT }">
+      <div
+        v-pointer-glow.tilt="{ maxTilt: 5 }"
+        class="card"
+        :class="{ 'is-init': mode === MODE.INIT }"
+      >
         <div class="card-head">
           <p class="eyebrow">{{ mode === MODE.INIT ? 'FIRST RUN' : 'SIGN IN' }}</p>
           <h2>{{ title }}</h2>
@@ -247,10 +247,9 @@ onMounted(detectMode)
               </button>
             </div>
             <!-- 实时校验：两次输入不一致时立刻提示，不必等点提交 -->
-            <span
-              v-if="form.confirm && form.confirm !== form.password"
-              class="field-hint error"
-            >两次输入的密码不一致</span>
+            <span v-if="form.confirm && form.confirm !== form.password" class="field-hint error"
+              >两次输入的密码不一致</span
+            >
           </label>
 
           <!-- 顶部错误条（含网络异常 + 业务错误） -->
@@ -343,6 +342,28 @@ onMounted(detectMode)
   50% {
     transform: translate3d(40px, -30px, 0) scale(1.08);
   }
+}
+
+/* ─── 指针跟随的全屏柔光 ───
+   .login-page 由 v-pointer-glow 注入 --gx/--gy（相对该元素，即整页）。
+   这里用一个铺满 bg-decor 的 div，radial-gradient 圆心绑定 (var(--gx), var(--gy))，
+   形成「鼠标走到哪儿，那块就微微发亮」的全息感。
+   · 600px 大半径 + 低透明度，确保不抢主视觉
+   · screen 混合让光斑能与下方紫蓝渐变叠加更亮，而非简单覆盖 */
+.cursor-spot {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    600px circle at var(--gx, 50%) var(--gy, 50%),
+    rgba(123, 108, 255, 0.18) 0%,
+    rgba(0, 212, 255, 0.08) 35%,
+    transparent 65%
+  );
+  mix-blend-mode: screen;
+  /* 用 opacity 缓动可以让光斑出现 / 消失更顺滑（mouseleave 时 --gxr 回中心，
+     但若整页不希望「永远有光」，可在此切到 0；当前页面期望常驻效果，保留 1） */
+  opacity: 1;
+  transition: opacity 0.4s ease;
 }
 
 /* ─── 左侧 hero 区 ─── */
@@ -438,6 +459,8 @@ onMounted(detectMode)
   align-items: center;
   justify-content: center;
   padding: 40px 64px;
+  /* 给卡片一个 3D 透视舞台：值越大透视越「平」，1000px 是较自然的选择 */
+  perspective: 1000px;
 }
 /* 玻璃质感卡片：半透明背景 + backdrop-filter 模糊 */
 .card {
@@ -451,9 +474,22 @@ onMounted(detectMode)
   backdrop-filter: blur(22px) saturate(160%);
   -webkit-backdrop-filter: blur(22px) saturate(160%); /* Safari 兼容 */
   box-shadow:
-    0 30px 80px rgba(2, 4, 18, 0.55), /* 大投影制造悬浮感 */
-    inset 0 1px 0 rgba(255, 255, 255, 0.08); /* 顶部高光线 */
-  transition: transform 0.4s ease;
+    0 30px 80px rgba(2, 4, 18, 0.55),
+    /* 大投影制造悬浮感 */ inset 0 1px 0 rgba(255, 255, 255, 0.08); /* 顶部高光线 */
+  /* 微倾斜由 v-pointer-glow.tilt 写入 --tilt-x/--tilt-y；
+     默认 0deg，鼠标进入卡片范围才会响应。
+     translateZ(0) 提升到独立合成层，避免每帧重绘父级。 */
+  transform: rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) translateZ(0);
+  transform-style: preserve-3d;
+  transition:
+    transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.3s ease;
+}
+/* 鼠标悬浮时给卡片更深的投影 + 上抬，让"立体感"更明显 */
+.card:hover {
+  box-shadow:
+    0 40px 100px rgba(2, 4, 18, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 /* 卡片渐变边框：用伪元素铺渐变 + mask 挖空内部，实现单层 1px 渐变描边 */
 .card::before {
@@ -462,7 +498,12 @@ onMounted(detectMode)
   inset: -1px;
   border-radius: 25px;
   padding: 1px;
-  background: linear-gradient(135deg, rgba(123, 108, 255, 0.6), transparent 40%, rgba(0, 212, 255, 0.45));
+  background: linear-gradient(
+    135deg,
+    rgba(123, 108, 255, 0.6),
+    transparent 40%,
+    rgba(0, 212, 255, 0.45)
+  );
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
@@ -471,7 +512,37 @@ onMounted(detectMode)
   pointer-events: none;
 }
 .card.is-init {
-  transform: translateY(-2px); /* 初始化模式微抬，暗示「特殊状态」 */
+  transform: rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) translateY(-2px); /* 初始化模式微抬，暗示「特殊状态」 */
+}
+
+/* 指针跟随高光：卡片内部 radial-gradient 圆心绑定 --gx/--gy。
+   hover 时 opacity 0→1 缓动，离开后回落，避免「贴纸」感。
+   z-index 必须小于内容（content 默认 z=auto，相邻同层后写者居上，
+   这里用 inherit 让 ::after 进入 stacking context 但显式拉到 0，
+   再给 .card 的子元素 position:relative + z>0 即可压住）。 */
+.card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    320px circle at var(--gx, 50%) var(--gy, 50%),
+    rgba(0, 230, 255, 0.16) 0%,
+    rgba(123, 108, 255, 0.08) 35%,
+    transparent 70%
+  );
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  z-index: 0;
+}
+.card:hover::after {
+  opacity: 1;
+}
+/* 让卡片内的所有直接子元素都在 ::after 之上，避免高光把字盖掉 */
+.card > * {
+  position: relative;
+  z-index: 1;
 }
 
 .eyebrow {

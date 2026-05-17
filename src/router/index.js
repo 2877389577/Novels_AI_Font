@@ -43,6 +43,21 @@ const router = createRouter({
       props: (route) => ({ id: Number(route.params.id) }),
     },
     {
+      // 章节编辑页：新建 / 查看 / 编辑 / 删除 四态合一
+      //   /novel/:id/chapter/new         → 新建模式（从 /chapters/next-no 拿建议章节号）
+      //   /novel/:id/chapter/:chapterId  → 查看/编辑模式（从 /chapters/:chapterId 拉详情）
+      // 正则 \d+|new 让一条路由同时兼容数字与字面量 'new'，避免拆两条
+      path: '/novel/:id(\\d+)/chapter/:chapterId(\\d+|new)',
+      name: 'chapter-edit',
+      component: () => import('@/views/ChapterEditView.vue'),
+      meta: { title: '章节编辑 · AI 小说系统' },
+      // chapterId='new' 时统一注入 null，组件用 `chapterId === null` 一处判断三态
+      props: (route) => ({
+        novelId: Number(route.params.id),
+        chapterId: route.params.chapterId === 'new' ? null : Number(route.params.chapterId),
+      }),
+    },
+    {
       // 兜底路由：任意未知路径回到书架（书架本身受守卫保护）
       path: '/:pathMatch(.*)*',
       redirect: '/shelf',

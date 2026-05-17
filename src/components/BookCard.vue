@@ -51,7 +51,15 @@ const displayTitle = computed(() => props.novel?.title || '未命名')
 </script>
 
 <template>
-  <article class="book" tabindex="0" :title="novel?.title" @click="$emit('click', novel)">
+  <!-- v-pointer-glow.tilt：让每本书 hover 时按鼠标位置 3D 倾斜，
+       同时 .cover::after 用 --gx/--gy 做一道跟随的高光，强化「拿在手里翻」的质感。 -->
+  <article
+    v-pointer-glow.tilt="{ maxTilt: 10 }"
+    class="book"
+    tabindex="0"
+    :title="novel?.title"
+    @click="$emit('click', novel)"
+  >
     <!-- 书脊：左侧一条深色窄条，配合 box-shadow 营造立体厚度 -->
     <span class="spine" aria-hidden="true"></span>
 
@@ -82,6 +90,8 @@ const displayTitle = computed(() => props.novel?.title || '未命名')
   display: flex;
   flex-direction: column;
   outline: none;
+  /* 给「书」一个 3D 透视舞台；600px 是 3:4 比例书本较自然的视距 */
+  perspective: 600px;
   transition:
     transform 0.25s ease,
     filter 0.25s ease;
@@ -110,6 +120,33 @@ const displayTitle = computed(() => props.novel?.title || '未命名')
     0 10px 24px rgba(0, 0, 0, 0.45),
     inset 0 0 0 1px rgba(255, 255, 255, 0.06);
   z-index: 1; /* 盖在书脊上方 */
+  /* 3D 倾斜：tilt 变量由 v-pointer-glow.tilt 写入，默认 0deg。
+     transform-style 与父级 perspective 配合形成立体；
+     translateZ(0) 把 cover 提升为合成层，防止子元素抗锯齿抖动。 */
+  transform: rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) translateZ(0);
+  transform-style: preserve-3d;
+  transition:
+    transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.25s ease;
+}
+/* 封面表面跟随指针的高光：radial-gradient 圆心绑定 --gx/--gy。
+   overlay 混合模式让高光与底图颜色发生关系，而不是死白覆盖。
+   hover 才显形，避免书架上一堆书永远「自带聚光灯」的卡通感。 */
+.cover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    140px circle at var(--gx, 50%) var(--gy, 50%),
+    rgba(255, 255, 255, 0.28) 0%,
+    rgba(255, 255, 255, 0.08) 35%,
+    transparent 65%
+  );
+  mix-blend-mode: overlay;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+  z-index: 2;
 }
 .cover img {
   width: 100%;
@@ -196,7 +233,12 @@ const displayTitle = computed(() => props.novel?.title || '未命名')
 .book:hover .cover,
 .book:focus-visible .cover {
   box-shadow:
-    0 18px 36px rgba(0, 0, 0, 0.55),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+    0 22px 44px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+/* 鼠标进入封面时显形跟随光斑 */
+.book:hover .cover::after,
+.book:focus-visible .cover::after {
+  opacity: 1;
 }
 </style>

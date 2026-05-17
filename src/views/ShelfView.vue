@@ -235,9 +235,12 @@ function onLogout() {
         <Button label="添加第一本" severity="primary" @click="openCreate" />
       </div>
 
-      <!-- 正常列表：等宽栅格 + 木纹隔板背景 -->
+      <!-- 正常列表：等宽栅格 + 木纹隔板背景
+           rack 上的 v-pointer-glow 让整片书架背景跟随鼠标产生淡光，
+           每本书内部还各自挂 .tilt 做局部 3D，互不干扰：
+           CSS 变量按元素作用域生效，子元素的同名变量会覆盖父元素继承值。 -->
       <div v-else class="rack-wrap">
-        <div class="rack">
+        <div v-pointer-glow class="rack">
           <BookCard v-for="n in novels" :key="n.id" :novel="n" @click="toDetail" />
         </div>
 
@@ -297,9 +300,7 @@ function onLogout() {
 <style scoped>
 .shelf {
   min-height: 100vh;
-  background:
-    radial-gradient(120% 80% at 0% 0%, #2a2030 0%, #16101c 60%, #0c0712 100%),
-    #0c0712;
+  background: radial-gradient(120% 80% at 0% 0%, #2a2030 0%, #16101c 60%, #0c0712 100%), #0c0712;
   color: #e7e9f5;
   font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
 }
@@ -382,13 +383,12 @@ function onLogout() {
 .skel {
   aspect-ratio: 3 / 4;
   border-radius: 6px;
-  background:
-    linear-gradient(
-      90deg,
-      rgba(255, 255, 255, 0.04) 0%,
-      rgba(255, 255, 255, 0.1) 50%,
-      rgba(255, 255, 255, 0.04) 100%
-    );
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(255, 255, 255, 0.1) 50%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
   background-size: 200% 100%;
   animation: shine 1.4s linear infinite;
 }
@@ -447,6 +447,34 @@ function onLogout() {
     ),
     linear-gradient(180deg, rgba(45, 30, 22, 0.4) 0%, rgba(28, 18, 14, 0.3) 100%);
   box-shadow: inset 0 0 0 1px rgba(125, 86, 60, 0.15);
+  /* 让 ::before 的绝对定位光晕能限制在 rack 圆角内 */
+  position: relative;
+  isolation: isolate;
+}
+/* 书架上的环境光：跟随鼠标的青紫色柔光斑。
+   · isolate 隔离上下文，避免与全屏 mix-blend 影响主页背景；
+   · 半径 500px、低透明度，只是「氛围光」，不喧宾夺主；
+   · z-index:0 + 后面 .rack > * 的 z-index:1 保证书本永远盖在光晕之上。 */
+.rack::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    500px circle at var(--gx, 50%) var(--gy, 50%),
+    rgba(0, 212, 255, 0.1) 0%,
+    rgba(123, 108, 255, 0.06) 35%,
+    transparent 65%
+  );
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.85;
+  transition: opacity 0.4s ease;
+}
+/* 书本直接子元素压住 ::before */
+.rack > * {
+  position: relative;
+  z-index: 1;
 }
 
 .sentinel {

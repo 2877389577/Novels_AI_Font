@@ -19,6 +19,7 @@ import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import { deleteNovel, getNovel, updateNovel } from '@/api/novel'
 import CoverUploader from '@/components/CoverUploader.vue'
+import ChapterList from '@/components/ChapterList.vue'
 
 const props = defineProps({
   id: { type: Number, required: true },
@@ -205,6 +206,22 @@ function goBack() {
   router.push({ name: 'shelf' })
 }
 
+// 跳转到「新增章节」编辑页（chapterId 用字面量 'new'，由路由 props 函数转 null）
+function toNewChapter() {
+  router.push({
+    name: 'chapter-edit',
+    params: { id: props.id, chapterId: 'new' },
+  })
+}
+
+// 跳转到指定章节的「查看 / 编辑」页
+function toEditChapter(chapter) {
+  router.push({
+    name: 'chapter-edit',
+    params: { id: props.id, chapterId: chapter.id },
+  })
+}
+
 // 格式化创建时间 / 字数等只读字段
 const createdAtText = computed(() => {
   const v = novel.value?.createdAt
@@ -215,7 +232,11 @@ const createdAtText = computed(() => {
 </script>
 
 <template>
-  <main class="detail">
+  <!-- 根容器挂 v-pointer-glow：写入 --gx/--gy 供 .cursor-spot 消费，
+       为整页加一层极淡的指针跟随环境光（不影响输入交互）。 -->
+  <main v-pointer-glow class="detail">
+    <!-- 跟随鼠标的全屏柔光（透明度刻意压低，仅作氛围层） -->
+    <div class="cursor-spot" aria-hidden="true"></div>
     <header class="top">
       <button class="back" type="button" @click="goBack">
         <span aria-hidden="true">←</span>
@@ -224,6 +245,10 @@ const createdAtText = computed(() => {
       <h1 v-if="novel">{{ novel.title }}</h1>
       <h1 v-else-if="loadError">小说不存在</h1>
       <h1 v-else>载入中…</h1>
+      <!-- 顶栏右侧操作组：承载从底部迁来的「删除小说」按钮 -->
+      <div v-if="novel" class="top-actions">
+        <Button label="删除小说" severity="danger" text :loading="deleting" @click="onDelete" />
+      </div>
     </header>
 
     <!-- 加载错误：把入口收敛，提供一键返回 -->
@@ -234,9 +259,10 @@ const createdAtText = computed(() => {
 
     <!-- 加载完成且无错：双栏布局 -->
     <section v-else-if="novel" class="content">
-      <!-- 左侧：书本预览 + 只读元数据 -->
+      <!-- 左侧：书本预览 + 只读元数据
+           v-pointer-glow.tilt 让封面随鼠标 3D 倾斜，营造「实物书」反馈 -->
       <aside class="preview">
-        <div class="book">
+        <div v-pointer-glow.tilt="{ maxTilt: 12 }" class="book">
           <span class="spine"></span>
           <div class="cover" :style="!form.coverUrl ? { background: gradient } : null">
             <img v-if="form.coverUrl" :src="form.coverUrl" :alt="form.title" />
@@ -287,24 +313,23 @@ const createdAtText = computed(() => {
           <Textarea v-model="form.intro" rows="6" placeholder="选填" />
         </label>
 
-        <!-- 操作区：左侧危险操作（删除），右侧主操作（保存/取消） -->
+        <!-- 操作区：撤销修改 / 保存（「删除小说」已迁到顶栏右侧） -->
         <div class="actions">
-          <Button
-            label="删除小说"
-            severity="danger"
-            :loading="deleting"
-            @click="onDelete"
-          />
-          <div class="grow"></div>
           <Button label="撤销修改" text :disabled="!dirty || saving" @click="onCancel" />
-          <Button
-            label="保存"
-            :disabled="!dirty || saving"
-            :loading="saving"
-            @click="onSave"
-          />
+          <Button label="保存" :disabled="!dirty || saving" :loading="saving" @click="onSave" />
         </div>
       </div>
+    </section>
+
+    <!-- 底部章节区：仅在小说加载成功后渲染
+         · 标题右侧承载「新增章节」CTA，路径最短
+         · ChapterList 内部自管分页/触底加载/删除二次确认 -->
+    <section v-if="novel" class="chapters">
+      <header class="chapters-head">
+        <h2>章节</h2>
+        <Button label="+ 新增章节" severity="primary" @click="toNewChapter" />
+      </header>
+      <ChapterList :novel-id="novel.id" @edit="toEditChapter" />
     </section>
   </main>
 </template>
@@ -312,10 +337,36 @@ const createdAtText = computed(() => {
 <style scoped>
 .detail {
   min-height: 100vh;
-  background:
-    radial-gradient(120% 80% at 0% 0%, #1b1f4a 0%, #0b0f24 55%, #06070f 100%);
+  background: radial-gradient(120% 80% at 0% 0%, #1b1f4a 0%, #0b0f24 55%, #06070f 100%);
   color: #e7e9f5;
   font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  /* 让 .cursor-spot absolute 定位时锚定到本容器 */
+  position: relative;
+  /* 防止跟随光斑溢出根容器扰动 body 滚动 */
+  overflow-x: hidden;
+}
+
+/* 详情页全屏跟随环境光：低透明度青紫色，仅作背景氛围。
+   pointer-events:none 保证不拦截表单交互；
+   position:absolute + 跟随主滚动；mix-blend-mode:screen 与暗背景叠加更亮。 */
+.cursor-spot {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    480px circle at var(--gx, 50%) var(--gy, 50%),
+    rgba(123, 108, 255, 0.1) 0%,
+    rgba(0, 212, 255, 0.05) 35%,
+    transparent 60%
+  );
+  mix-blend-mode: screen;
+  z-index: 0;
+}
+/* 主内容统一压住 cursor-spot */
+.detail > header,
+.detail > section {
+  position: relative;
+  z-index: 1;
 }
 
 .top {
@@ -354,10 +405,22 @@ const createdAtText = computed(() => {
   margin: 0;
   font-size: 18px;
   letter-spacing: 0.04em;
+  /* 占据返回按钮与右侧操作组之间的全部空间，让操作组靠右
+     min-width: 0 让 ellipsis 在 flex 容器内正确生效 */
+  flex: 1;
+  min-width: 0;
   /* 超长书名省略 */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 顶栏右侧操作组：承载迁出的「删除小说」按钮 */
+.top-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .error-block {
@@ -392,6 +455,8 @@ const createdAtText = computed(() => {
 .book {
   position: relative;
   width: 220px;
+  /* 3D 透视舞台：让 .cover 上的 rotateX/rotateY 呈现立体感而非平面歪斜 */
+  perspective: 800px;
 }
 .spine {
   position: absolute;
@@ -414,6 +479,39 @@ const createdAtText = computed(() => {
     0 18px 36px rgba(0, 0, 0, 0.55),
     inset 0 0 0 1px rgba(255, 255, 255, 0.06);
   z-index: 1;
+  /* 倾斜由 v-pointer-glow.tilt 写入；默认 0deg。
+     这里 maxTilt:12 让详情页的「主角书」反馈更明显，强化沉浸感。
+     transition 用 cubic-bezier 模拟实物的轻微弹性，避免线性过渡的机器味。*/
+  transform: rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) translateZ(0);
+  transform-style: preserve-3d;
+  transition:
+    transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.3s ease;
+}
+/* 封面表面跟随鼠标的高光：与 BookCard 同思路，半径稍大配合详情页更大的尺寸 */
+.cover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    200px circle at var(--gx, 50%) var(--gy, 50%),
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(255, 255, 255, 0.06) 40%,
+    transparent 65%
+  );
+  mix-blend-mode: overlay;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 3; /* 盖在 .gloss 之上，让动态高光更显眼 */
+}
+.book:hover .cover::after {
+  opacity: 1;
+}
+.book:hover .cover {
+  box-shadow:
+    0 28px 48px rgba(0, 0, 0, 0.65),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 .cover img {
   width: 100%;
@@ -516,13 +614,32 @@ const createdAtText = computed(() => {
 .actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 12px;
   margin-top: 12px;
   padding-top: 24px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
-.grow {
-  flex: 1;
+
+/* ─── 底部章节区 ─── */
+.chapters {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 40px 80px;
+}
+.chapters-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.chapters-head h2 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  color: rgba(231, 233, 245, 0.9);
 }
 
 @media (max-width: 960px) {

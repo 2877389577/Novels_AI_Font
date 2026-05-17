@@ -124,13 +124,7 @@ function onRemove() {
        「弹两次 picker」的 BUG 已由调用方将外层 <label> 改为 <div> 根治。 -->
   <div class="uploader">
     <!-- 隐藏的真正文件 input；用 label/按钮触发 -->
-    <input
-      ref="inputRef"
-      type="file"
-      accept="image/*"
-      class="hidden-input"
-      @change="onPick"
-    />
+    <input ref="inputRef" type="file" accept="image/*" class="hidden-input" @change="onPick" />
 
     <!-- 已有封面：显示预览；悬浮显示操作 -->
     <div
