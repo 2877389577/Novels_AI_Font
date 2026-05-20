@@ -43,6 +43,16 @@ const router = createRouter({
       props: (route) => ({ id: Number(route.params.id) }),
     },
     {
+      // 角色卡管理页：查看角色列表，并承载角色新增 / 详情 / 编辑 / 删除
+      // 后端关系图接口暂未提供，因此关系图入口只在页面内展示为不可用状态。
+      path: '/novel/:id(\\d+)/characters',
+      name: 'character-cards',
+      component: () => import('@/views/CharacterCardsView.vue'),
+      meta: { title: '角色卡 · AI 小说系统' },
+      // 路由层统一把小说 id 转成 number，页面不再重复解析 route.params。
+      props: (route) => ({ novelId: Number(route.params.id) }),
+    },
+    {
       // 章节编辑页：新建 / 查看 / 编辑 / 删除 四态合一
       //   /novel/:id/chapter/new         → 新建模式（从 /chapters/next-no 拿建议章节号）
       //   /novel/:id/chapter/:chapterId  → 查看/编辑模式（从 /chapters/:chapterId 拉详情）

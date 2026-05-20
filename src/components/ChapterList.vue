@@ -1,12 +1,13 @@
 <!--
-  ChapterList.vue —— 小说详情页底部嵌入的「章节列表」
+  ChapterList.vue：小说详情页嵌入的章节表格
   ----------------------------------------------------------------------------
-  · 数据：调 /novels/{id}/chapters 分页拉摘要列表（列表项不含 content）
-  · 翻页：照搬 ShelfView 的 IntersectionObserver + sentinel + hasMore 模式
-          —— 底部哨兵进入视口、有下一页、当前未在请求 → 自动拉下一页
-  · 删除：在 List 层做二次确认 + 调 deleteChapter；删除成功后本地从 items 剔除
-          并把 total -1，不重新分页拉取（避免分页错位 / 闪烁）
-  · 点行：emit('edit', chapter) 把整行抛给父组件，由父决定跳哪个路由
+  数据与行为沿用原实现：
+  1. 分页读取 /novels/{id}/chapters，并用 IntersectionObserver 触底加载下一页。
+  2. 点击章节行 emit('edit', chapter)，由详情页跳转到章节编辑页。
+  3. 删除仍在列表层做二次确认和接口调用，成功后从本地列表移除。
+  视觉重构目标：
+  1. 按设计图改为浅色表格，展示“章节号 / 章节标题 / 创建时间”。
+  2. 删除操作保留在行尾，视觉弱化，避免破坏设计图的三列表格主体。
 -->
 
 <script setup>
@@ -18,35 +19,32 @@ import { deleteChapter, listChapters } from '@/api/chapter'
 import ChapterRow from './ChapterRow.vue'
 
 const props = defineProps({
-  // 所属小说 ID，必传；用于拼接 /novels/{novelId}/chapters 路径
+  // 所属小说 ID，必传；用于拼接 /novels/{id}/chapters 路径。
   novelId: { type: Number, required: true },
 })
 
-// 父组件决定如何处理点击：通常是 router.push 跳到 chapter-edit 路由
+// 父组件决定章节点击后的路由行为，列表只负责把章节对象抛出。
 const emit = defineEmits(['edit'])
 
 const confirm = useConfirm()
 const toast = useToast()
 
 // ───── 分页状态 ─────
-const items = ref([]) // 已加载的章节摘要数组（按后端返回顺序 append）
-const page = ref(1) // 当前请求的页码（每次成功后 +1）
-const pageSize = 10 // 固定 10 条/页，对齐 Apifox 默认；前端不再暴露切换
-const total = ref(0) // 后端总数，决定 hasMore
-const loading = ref(false) // 单页请求中标记，用于防抖 + 「载入更多…」提示
-const initialLoaded = ref(false) // 首次拉取完成（成功/失败都置 true），用于切换占位
-const loadError = ref('') // 首次加载失败的错误文案
+const items = ref([])
+const page = ref(1)
+const pageSize = 10
+const total = ref(0)
+const loading = ref(false)
+const initialLoaded = ref(false)
+const loadError = ref('')
 
-// 是否还有下一页：本地条数 < 后端 total
 const hasMore = computed(() => items.value.length < total.value)
 
-// 用于 IntersectionObserver 的底部哨兵元素
+// 触底加载哨兵：观察到进入视口时尝试加载下一页。
 const sentinel = ref(null)
 let observer = null
 
-// 拉一页数据并 append 到 items
 async function fetchPage() {
-  // 防抖：正在请求 / 已经到底就不重复发
   if (loading.value) return
   if (initialLoaded.value && !hasMore.value) return
   loading.value = true
@@ -61,10 +59,8 @@ async function fetchPage() {
       total.value = res.data?.total || 0
       page.value += 1
     } else if (!initialLoaded.value) {
-      // 首次失败：显示错误占位让用户感知
       loadError.value = res?.msg || '加载失败'
     } else {
-      // 后续页失败：用 toast 提示，不破坏已加载内容
       toast.add({
         severity: 'error',
         summary: '加载失败',
@@ -89,18 +85,15 @@ async function fetchPage() {
   }
 }
 
-// 首次拉取 + 启动触底观察（沿用 ShelfView 同套模式）
 onMounted(async () => {
   await fetchPage()
   await nextTick()
   observer = new IntersectionObserver(
     (entries) => {
-      // sentinel 进入视口、还有下一页、当前没在请求 → 触发加载
       if (entries[0]?.isIntersecting && hasMore.value && !loading.value) {
         fetchPage()
       }
     },
-    // rootMargin 200px：还没真正触底就提前预加载，体感更顺
     { rootMargin: '200px' },
   )
   if (sentinel.value) observer.observe(sentinel.value)
@@ -110,12 +103,10 @@ onBeforeUnmount(() => {
   observer?.disconnect()
 })
 
-// 行点击：把整行章节摘要抛给父组件
 function onRowClick(chapter) {
   emit('edit', chapter)
 }
 
-// 行删除：二次确认 → 调接口 → 本地剔除 + total-1
 function onRowDelete(chapter) {
   confirm.require({
     header: '确认删除',
@@ -150,7 +141,7 @@ function onRowDelete(chapter) {
   })
 }
 
-// 暴露给父组件：保存章节后能主动刷新列表（避免新章节不出现）
+// 暴露刷新方法：未来章节保存成功后，父组件可以主动刷新列表。
 defineExpose({
   refresh() {
     items.value = []
@@ -165,37 +156,39 @@ defineExpose({
 
 <template>
   <div class="chapter-list">
-    <!-- 首次加载占位 -->
     <div v-if="!initialLoaded" class="state">载入中…</div>
 
-    <!-- 首次加载失败占位 + 重试 -->
     <div v-else-if="loadError" class="state error">
       <span>{{ loadError }}</span>
       <Button label="重试" text size="small" @click="fetchPage" />
     </div>
 
-    <!-- 空列表占位 -->
     <div v-else-if="total === 0" class="state empty">
-      还没有章节，点上方「+ 新增章节」开始写作。
+      还没有章节，点上方「添加章节」开始写作。
     </div>
 
-    <!-- 正常列表 -->
-    <div v-else class="rows">
-      <ChapterRow
-        v-for="c in items"
-        :key="c.id"
-        :chapter="c"
-        @click="onRowClick"
-        @delete="onRowDelete"
-      />
+    <div v-else class="chapter-table" role="table" aria-label="章节列表">
+      <div class="table-head" role="row">
+        <span role="columnheader">章节号</span>
+        <span role="columnheader">章节标题</span>
+        <span role="columnheader">创建时间</span>
+        <span class="action-head" aria-hidden="true"></span>
+      </div>
+
+      <div class="rows" role="rowgroup">
+        <ChapterRow
+          v-for="c in items"
+          :key="c.id"
+          :chapter="c"
+          @click="onRowClick"
+          @delete="onRowDelete"
+        />
+      </div>
     </div>
 
-    <!-- 底部哨兵：用于触发下一页加载；同时承载状态文案 -->
-    <div ref="sentinel" class="sentinel">
+    <div ref="sentinel" class="sentinel" aria-live="polite">
       <span v-if="loading && initialLoaded">载入更多…</span>
-      <span v-else-if="initialLoaded && !hasMore && total > 0">
-        已经到底了 · 共 {{ total }} 章
-      </span>
+      <span v-else-if="initialLoaded && !hasMore && total > 0">已经到底了 · 共 {{ total }} 章</span>
     </div>
   </div>
 </template>
@@ -203,40 +196,72 @@ defineExpose({
 <style scoped>
 .chapter-list {
   width: 100%;
+  color: oklch(28% 0.035 260);
 }
 
-/* 通用状态占位：载入 / 空 / 错误 */
 .state {
-  padding: 40px 20px;
-  text-align: center;
-  color: rgba(231, 233, 245, 0.5);
-  font-size: 14px;
+  min-height: 160px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 12px;
+  color: oklch(52% 0.03 260);
+  font-size: 0.95rem;
 }
+
 .state.error {
-  color: #ff7aa2;
+  color: oklch(55% 0.22 25);
 }
+
 .state.empty {
-  color: rgba(231, 233, 245, 0.45);
+  color: oklch(50% 0.035 260);
 }
 
-/* 列表容器：行间距由 ChapterRow 自己的 .row + .row 控制 */
+.chapter-table {
+  overflow: hidden;
+  border: 1px solid oklch(88% 0.012 255);
+  border-radius: 10px;
+  background: oklch(99.2% 0.004 255);
+}
+
+.table-head {
+  display: grid;
+  grid-template-columns: 180px minmax(220px, 1fr) 260px 56px;
+  align-items: center;
+  min-height: 54px;
+  padding: 0 28px;
+  color: oklch(34% 0.032 260);
+  font-size: 1rem;
+  font-weight: 760;
+}
+
 .rows {
-  display: flex;
-  flex-direction: column;
+  border-top: 1px solid oklch(90% 0.01 255);
 }
 
-/* 底部哨兵：固定高度 + 居中文案，避免空白时高度坍缩观察不到交叉 */
 .sentinel {
-  margin-top: 24px;
+  min-height: 40px;
+  padding: 18px 0 2px;
   text-align: center;
-  color: rgba(231, 233, 245, 0.4);
-  font-size: 13px;
-  letter-spacing: 0.04em;
-  padding: 16px 0;
-  min-height: 24px;
+  color: oklch(56% 0.028 260);
+  font-size: 0.875rem;
+}
+
+@media (max-width: 760px) {
+  .chapter-table {
+    border-radius: 12px;
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .table-head {
+    display: none;
+  }
+
+  .rows {
+    display: grid;
+    gap: 10px;
+    border-top: 0;
+  }
 }
 </style>
