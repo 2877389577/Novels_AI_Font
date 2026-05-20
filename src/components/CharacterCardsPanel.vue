@@ -4,7 +4,7 @@
   设计目标：
   1. 作为 NovelDetailView 的「角色卡」Tab 主体，同时兼容备用路由页复用。
   2. 列表只展示摘要信息；点击卡片后调用详情接口，再在弹窗中查看和修改完整资料。
-  3. 新增和编辑共用同一个表单弹窗，降低交互复杂度，也让字段维护只落在一处。
+  3. 详情弹窗默认以角色档案呈现，用户进入具体区块后再编辑，避免全屏表单压迫感。
   4. 删除入口放在卡片右上角的 x 按钮，使用全局 ConfirmDialog 做二次确认。
 -->
 
@@ -40,7 +40,7 @@ const STATUS_OPTIONS = [
   { label: '下线', value: 2 },
 ]
 
-const GENDER_OPTIONS = ['未设定', '男', '女', '其他']
+const GENDER_OPTIONS = ['男', '女']
 
 const AVATAR_GRADIENTS = [
   ['oklch(74% 0.13 180)', 'oklch(58% 0.15 245)'],
@@ -49,6 +49,68 @@ const AVATAR_GRADIENTS = [
   ['oklch(72% 0.13 150)', 'oklch(55% 0.13 212)'],
   ['oklch(77% 0.14 96)', 'oklch(61% 0.16 18)'],
   ['oklch(66% 0.15 232)', 'oklch(38% 0.08 255)'],
+]
+
+const PROFILE_SECTIONS = [
+  {
+    key: 'intro',
+    title: '角色介绍',
+    fields: [
+      {
+        key: 'intro',
+        label: '定位摘要',
+        placeholder: '角色的一句话定位或摘要',
+      },
+    ],
+  },
+  {
+    key: 'shape',
+    title: '外貌与性格',
+    fields: [
+      {
+        key: 'appearance',
+        label: '外貌',
+        placeholder: '外貌、服饰、辨识特征',
+      },
+      {
+        key: 'personality',
+        label: '性格',
+        placeholder: '性格关键词与行为倾向',
+      },
+    ],
+  },
+  {
+    key: 'origin',
+    title: '背景与能力',
+    fields: [
+      {
+        key: 'background',
+        label: '背景',
+        placeholder: '身世、经历、关系网络',
+      },
+      {
+        key: 'ability',
+        label: '能力',
+        placeholder: '能力、限制、代价',
+      },
+    ],
+  },
+  {
+    key: 'plot',
+    title: '动机与剧情',
+    fields: [
+      {
+        key: 'motivation',
+        label: '动机',
+        placeholder: '想要什么，害怕什么',
+      },
+      {
+        key: 'plotDirection',
+        label: '剧情方向',
+        placeholder: '后续成长、冲突或结局方向',
+      },
+    ],
+  },
 ]
 
 // ───── 列表状态 ─────
@@ -68,6 +130,8 @@ const activeCharacterId = ref(null)
 const detailLoading = ref(false)
 const saving = ref(false)
 const deletingId = ref(null)
+const activeEditSection = ref('')
+const detailSnapshot = ref('')
 
 const form = reactive({
   name: '',
@@ -86,11 +150,13 @@ const form = reactive({
 })
 
 const hasMore = computed(() => items.value.length < total.value)
-const dialogTitle = computed(() => (dialogMode.value === 'create' ? '添加角色卡' : '角色卡详情'))
+const dialogTitle = computed(() => (dialogMode.value === 'create' ? '添加角色' : '角色档案'))
+const parsedTags = computed(() => parseTags())
+const dirty = computed(() => dialogMode.value === 'create' || payloadSignature() !== detailSnapshot.value)
 
 function resetForm() {
   form.name = ''
-  form.gender = ''
+  form.gender = '男'
   form.status = 1
   form.appearanceImgUrl = ''
   form.tagsText = ''
@@ -107,7 +173,7 @@ function resetForm() {
 // 将后端角色详情同步到弹窗表单。列表接口只返回摘要，详情接口返回完整资料。
 function syncForm(character = {}) {
   form.name = character.name || ''
-  form.gender = character.gender || ''
+  form.gender = normalizeGender(character.gender)
   form.status = character.status || 1
   form.appearanceImgUrl = character.appearanceImgUrl || ''
   form.tagsText = Array.isArray(character.charactersTags) ? character.charactersTags.join('，') : ''
@@ -125,16 +191,21 @@ function syncForm(character = {}) {
 }
 
 function parseTags() {
+  // 标签输入兼容中英文逗号，用户从中文输入法里直接输入也能拆成标签。
   return form.tagsText
     .split(/[，,]/)
     .map((tag) => tag.trim())
     .filter(Boolean)
 }
 
+function normalizeGender(gender = '') {
+  return gender === '女' ? '女' : '男'
+}
+
 function buildPayload() {
   const payload = {
     name: form.name.trim(),
-    gender: form.gender.trim(),
+    gender: normalizeGender(form.gender),
     status: Number(form.status) || 1,
     appearanceImgUrl: form.appearanceImgUrl.trim(),
     charactersTags: parseTags(),
@@ -154,6 +225,14 @@ function buildPayload() {
   }
 
   return payload
+}
+
+function payloadSignature() {
+  return JSON.stringify(buildPayload())
+}
+
+function rememberSnapshot() {
+  detailSnapshot.value = payloadSignature()
 }
 
 function characterIdOf(character) {
@@ -177,6 +256,19 @@ function avatarStyle(character = {}) {
   }
   const [a, b] = AVATAR_GRADIENTS[hash % AVATAR_GRADIENTS.length]
   return { background: `linear-gradient(135deg, ${a} 0%, ${b} 100%)` }
+}
+
+function textOrFallback(value, fallback = '暂未记录') {
+  return value?.trim() || fallback
+}
+
+function beginEditSection(sectionKey) {
+  if (detailLoading.value || saving.value) return
+  activeEditSection.value = activeEditSection.value === sectionKey ? '' : sectionKey
+}
+
+function isSectionEditing(sectionKey) {
+  return activeEditSection.value === sectionKey
 }
 
 async function fetchCharacters({ append = false } = {}) {
@@ -222,6 +314,8 @@ function openCreate() {
   dialogMode.value = 'create'
   activeCharacterId.value = null
   resetForm()
+  activeEditSection.value = 'create'
+  rememberSnapshot()
   showDialog.value = true
 }
 
@@ -240,6 +334,8 @@ async function openDetail(character) {
   dialogMode.value = 'edit'
   activeCharacterId.value = id
   syncForm(character)
+  activeEditSection.value = ''
+  rememberSnapshot()
   showDialog.value = true
   detailLoading.value = true
 
@@ -247,6 +343,7 @@ async function openDetail(character) {
     const res = await getCharacter(props.novelId, id)
     if (res?.code === 0 && res.data) {
       syncForm(res.data)
+      rememberSnapshot()
     } else {
       toast.add({
         severity: 'error',
@@ -269,6 +366,7 @@ async function openDetail(character) {
 
 function closeDialog() {
   if (saving.value) return
+  activeEditSection.value = ''
   showDialog.value = false
 }
 
@@ -288,13 +386,48 @@ async function onSave() {
         : await updateCharacter(props.novelId, activeCharacterId.value, payload)
 
     if (res?.code === 0) {
+      const wasCreate = dialogMode.value === 'create'
       toast.add({
         severity: 'success',
-        summary: dialogMode.value === 'create' ? '角色卡已添加' : '角色卡已保存',
+        summary: wasCreate ? '角色卡已添加' : '角色卡已保存',
         life: 2000,
       })
-      showDialog.value = false
       await refreshCharacters()
+
+      if (wasCreate) {
+        const createdCharacter = { ...payload, ...(res.data || {}) }
+        const createdId = characterIdOf(createdCharacter)
+        if (createdId) {
+          dialogMode.value = 'edit'
+          activeCharacterId.value = createdId
+          syncForm(createdCharacter)
+          rememberSnapshot()
+          activeEditSection.value = ''
+          detailLoading.value = true
+          try {
+            const detailRes = await getCharacter(props.novelId, createdId)
+            if (detailRes?.code === 0 && detailRes.data) {
+              syncForm(detailRes.data)
+              rememberSnapshot()
+            }
+          } catch (e) {
+            toast.add({
+              severity: 'warn',
+              summary: '详情暂未刷新',
+              detail: e?.message || '角色已创建，可稍后重新打开补充资料。',
+              life: 3000,
+            })
+          } finally {
+            detailLoading.value = false
+          }
+        } else {
+          showDialog.value = false
+        }
+      } else {
+        rememberSnapshot()
+        activeEditSection.value = ''
+        showDialog.value = false
+      }
     } else {
       toast.add({
         severity: 'error',
@@ -477,120 +610,225 @@ onMounted(refreshCharacters)
       :modal="true"
       :draggable="false"
       :closable="!saving"
-      :style="{ width: '760px', maxWidth: 'calc(100vw - 32px)' }"
+      :style="{ width: dialogMode === 'create' ? '640px' : '860px', maxWidth: 'calc(100vw - 32px)' }"
       class="character-dialog"
     >
-      <form class="character-form" @submit.prevent="onSave">
+      <form class="character-form" :data-mode="dialogMode" @submit.prevent="onSave">
         <div v-if="detailLoading" class="detail-loading" aria-live="polite">
           <span class="spinner" aria-hidden="true"></span>
           <span>正在读取角色详情…</span>
         </div>
 
-        <div class="form-main">
-          <div class="portrait-field">
-            <span>形象图</span>
-            <!-- CoverUploader 可复用图片上传能力；外层使用 div，避免 label 触发双 picker。 -->
-            <CoverUploader v-model="form.appearanceImgUrl" />
-          </div>
-
-          <div class="form-fields">
-            <label class="field">
-              <span>角色名称 <em>*</em></span>
-              <InputText v-model="form.name" placeholder="请输入角色名称" autofocus />
-            </label>
-
-            <div class="two-col">
-              <label class="field">
-                <span>性别</span>
-                <select v-model="form.gender" class="native-input">
-                  <option
-                    v-for="option in GENDER_OPTIONS"
-                    :key="option"
-                    :value="option === '未设定' ? '' : option"
-                  >
-                    {{ option }}
-                  </option>
-                </select>
-              </label>
-
-              <label class="field">
-                <span>状态</span>
-                <select v-model.number="form.status" class="native-input">
-                  <option
-                    v-for="option in STATUS_OPTIONS"
-                    :key="option.value"
-                    :value="option.value"
-                  >
-                    {{ option.label }}
-                  </option>
-                </select>
-              </label>
+        <template v-if="dialogMode === 'create'">
+          <div class="create-layout">
+            <div class="portrait-field">
+              <span>形象图</span>
+              <!-- CoverUploader 可复用图片上传能力；外层使用 div，避免 label 触发双 picker。 -->
+              <CoverUploader v-model="form.appearanceImgUrl" />
             </div>
 
-            <label class="field">
-              <span>角色标签</span>
-              <InputText v-model="form.tagsText" placeholder="多个标签用逗号分隔" />
-            </label>
+            <div class="create-fields">
+              <label class="field">
+                <span>角色名称 <em>*</em></span>
+                <InputText v-model="form.name" placeholder="请输入角色名称" autofocus />
+              </label>
 
-            <label class="field">
-              <span>首次出现章节 ID</span>
-              <InputText
-                v-model="form.firstAppearanceChapterId"
-                inputmode="numeric"
-                placeholder="选填，例如 12"
-              />
-            </label>
+              <div class="choice-field">
+                <span>性别</span>
+                <div class="choice-row" role="group" aria-label="选择性别">
+                  <button
+                    v-for="option in GENDER_OPTIONS"
+                    :key="option"
+                    class="choice-button"
+                    type="button"
+                    :aria-pressed="form.gender === option"
+                    @click="form.gender = option"
+                  >
+                    {{ option }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="choice-field">
+                <span>状态</span>
+                <div class="choice-row" role="group" aria-label="选择角色状态">
+                  <button
+                    v-for="option in STATUS_OPTIONS"
+                    :key="option.value"
+                    class="choice-button"
+                    type="button"
+                    :aria-pressed="form.status === option.value"
+                    @click="form.status = option.value"
+                  >
+                    {{ option.label }}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
+        </template>
 
-        <div class="field-grid">
-          <label class="field">
-            <span>角色介绍</span>
-            <Textarea v-model="form.intro" rows="4" placeholder="角色的一句话定位或摘要" />
-          </label>
+        <template v-else>
+          <section class="profile-hero" :class="{ editing: isSectionEditing('basic') }">
+            <div class="profile-portrait">
+              <CoverUploader v-if="isSectionEditing('basic')" v-model="form.appearanceImgUrl" />
+              <img
+                v-else-if="form.appearanceImgUrl"
+                :src="form.appearanceImgUrl"
+                :alt="`${form.name || '未命名'}形象图`"
+              />
+              <span v-else :style="avatarStyle(form)">{{ initials(form.name) }}</span>
+            </div>
 
-          <label class="field">
-            <span>外貌</span>
-            <Textarea v-model="form.appearance" rows="4" placeholder="外貌、服饰、辨识特征" />
-          </label>
+            <div class="profile-summary">
+              <template v-if="isSectionEditing('basic')">
+                <div class="profile-edit-grid">
+                  <label class="field">
+                    <span>角色名称 <em>*</em></span>
+                    <InputText v-model="form.name" placeholder="请输入角色名称" autofocus />
+                  </label>
 
-          <label class="field">
-            <span>性格</span>
-            <Textarea v-model="form.personality" rows="4" placeholder="性格关键词与行为倾向" />
-          </label>
+                  <label class="field">
+                    <span>角色标签</span>
+                    <InputText v-model="form.tagsText" placeholder="中英文逗号都可分隔" />
+                    <div class="editable-tags" aria-label="标签预览">
+                      <span v-for="tag in parsedTags" :key="tag">{{ tag }}</span>
+                      <span v-if="!parsedTags.length" class="muted-tag">
+                        输入后会自动拆成标签
+                      </span>
+                    </div>
+                  </label>
 
-          <label class="field">
-            <span>背景</span>
-            <Textarea v-model="form.background" rows="4" placeholder="身世、经历、关系网络" />
-          </label>
+                  <label class="field compact-field">
+                    <span>首次出现章节 ID</span>
+                    <InputText
+                      v-model="form.firstAppearanceChapterId"
+                      inputmode="numeric"
+                      placeholder="选填，例如 12"
+                    />
+                  </label>
 
-          <label class="field">
-            <span>能力</span>
-            <Textarea v-model="form.ability" rows="4" placeholder="能力、限制、代价" />
-          </label>
+                  <div class="choice-field">
+                    <span>性别</span>
+                    <div class="choice-row" role="group" aria-label="选择性别">
+                      <button
+                        v-for="option in GENDER_OPTIONS"
+                        :key="option"
+                        class="choice-button"
+                        type="button"
+                        :aria-pressed="form.gender === option"
+                        @click="form.gender = option"
+                      >
+                        {{ option }}
+                      </button>
+                    </div>
+                  </div>
 
-          <label class="field">
-            <span>动机</span>
-            <Textarea v-model="form.motivation" rows="4" placeholder="想要什么，害怕什么" />
-          </label>
+                  <div class="choice-field">
+                    <span>状态</span>
+                    <div class="choice-row" role="group" aria-label="选择角色状态">
+                      <button
+                        v-for="option in STATUS_OPTIONS"
+                        :key="option.value"
+                        class="choice-button"
+                        type="button"
+                        :aria-pressed="form.status === option.value"
+                        @click="form.status = option.value"
+                      >
+                        {{ option.label }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </template>
 
-          <label class="field wide">
-            <span>剧情方向</span>
-            <Textarea
-              v-model="form.plotDirection"
-              rows="4"
-              placeholder="后续成长、冲突或结局方向"
-            />
-          </label>
-        </div>
+              <template v-else>
+                <div class="profile-title-row">
+                  <div>
+                    <p class="profile-kicker">Character File</p>
+                    <h3>{{ form.name || '未命名角色' }}</h3>
+                  </div>
+                  <span class="status-pill" :data-status="form.status">
+                    {{ statusLabel(form.status) }}
+                  </span>
+                </div>
+
+                <div class="profile-meta" aria-label="角色基础信息">
+                  <span>{{ form.gender }}</span>
+                  <span>
+                    {{
+                      form.firstAppearanceChapterId
+                        ? `首次出现：第 ${form.firstAppearanceChapterId} 章`
+                        : '首次出现未记录'
+                    }}
+                  </span>
+                </div>
+
+                <div class="profile-tags" aria-label="角色标签">
+                  <span v-for="tag in parsedTags" :key="tag">{{ tag }}</span>
+                  <span v-if="!parsedTags.length" class="muted-tag">暂无标签</span>
+                </div>
+              </template>
+            </div>
+
+            <button
+              class="section-edit-button"
+              type="button"
+              :aria-pressed="isSectionEditing('basic')"
+              @click="beginEditSection('basic')"
+            >
+              {{ isSectionEditing('basic') ? '收起' : '编辑资料' }}
+            </button>
+          </section>
+
+          <div class="profile-sections">
+            <section
+              v-for="section in PROFILE_SECTIONS"
+              :key="section.key"
+              class="profile-section"
+              :class="{ editing: isSectionEditing(section.key) }"
+            >
+              <header class="section-head">
+                <h4>{{ section.title }}</h4>
+                <button
+                  class="section-edit-button"
+                  type="button"
+                  :aria-pressed="isSectionEditing(section.key)"
+                  @click="beginEditSection(section.key)"
+                >
+                  {{ isSectionEditing(section.key) ? '收起' : '编辑' }}
+                </button>
+              </header>
+
+              <div v-if="isSectionEditing(section.key)" class="section-form">
+                <label v-for="field in section.fields" :key="field.key" class="field">
+                  <span>{{ field.label }}</span>
+                  <Textarea
+                    v-model="form[field.key]"
+                    rows="4"
+                    :placeholder="field.placeholder"
+                    auto-resize
+                  />
+                </label>
+              </div>
+
+              <div v-else class="section-read">
+                <div v-for="field in section.fields" :key="field.key" class="read-block">
+                  <span>{{ field.label }}</span>
+                  <p>{{ textOrFallback(form[field.key]) }}</p>
+                </div>
+              </div>
+            </section>
+          </div>
+        </template>
       </form>
 
       <template #footer>
         <Button label="取消" text :disabled="saving" @click="closeDialog" />
         <Button
-          :label="dialogMode === 'create' ? '添加' : '保存'"
+          :label="dialogMode === 'create' ? '创建角色' : '保存修改'"
           :loading="saving"
-          :disabled="detailLoading"
+          :disabled="detailLoading || (dialogMode === 'edit' && !dirty)"
           @click="onSave"
         />
       </template>
@@ -684,7 +922,8 @@ onMounted(refreshCharacters)
 .add-button:focus-visible,
 .character-card:focus-visible,
 .delete-character:focus-visible,
-.native-input:focus-visible {
+.choice-button:focus-visible,
+.section-edit-button:focus-visible {
   outline: 3px solid oklch(76% 0.14 250 / 0.55);
   outline-offset: 3px;
 }
@@ -910,7 +1149,7 @@ onMounted(refreshCharacters)
 
 .character-form {
   display: grid;
-  gap: 20px;
+  gap: 18px;
 }
 
 .detail-loading {
@@ -926,7 +1165,7 @@ onMounted(refreshCharacters)
   font-size: 0.9rem;
 }
 
-.form-main {
+.create-layout {
   display: grid;
   grid-template-columns: 196px minmax(0, 1fr);
   gap: 24px;
@@ -934,13 +1173,15 @@ onMounted(refreshCharacters)
 }
 
 .portrait-field,
-.field {
+.field,
+.choice-field {
   display: grid;
   gap: 8px;
 }
 
 .portrait-field > span,
-.field > span {
+.field > span,
+.choice-field > span {
   color: oklch(34% 0.035 260);
   font-size: 0.875rem;
   font-weight: 760;
@@ -951,31 +1192,294 @@ onMounted(refreshCharacters)
   font-style: normal;
 }
 
-.form-fields {
+.create-fields {
   display: grid;
-  gap: 14px;
+  gap: 18px;
 }
 
-.two-col,
-.field-grid {
+.choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.choice-button,
+.section-edit-button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid oklch(84% 0.018 255);
+  border-radius: 999px;
+  background: oklch(98% 0.006 255);
+  color: oklch(42% 0.035 260);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 720;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.choice-button {
+  min-width: 72px;
+  padding: 0 14px;
+}
+
+.choice-button:hover,
+.section-edit-button:hover {
+  border-color: oklch(70% 0.08 255);
+  background: oklch(95% 0.02 255);
+  color: oklch(48% 0.16 255);
+}
+
+.choice-button[aria-pressed='true'],
+.section-edit-button[aria-pressed='true'] {
+  border-color: oklch(62% 0.14 255);
+  background: oklch(93.5% 0.038 255);
+  color: oklch(45% 0.18 258);
+  box-shadow: 0 8px 18px oklch(48% 0.1 255 / 0.12);
+}
+
+.profile-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: 164px minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: start;
+  padding: 20px;
+  border: 1px solid oklch(88% 0.012 255);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 16% 10%, oklch(96% 0.026 255) 0, transparent 20rem),
+    oklch(98.5% 0.006 255);
+}
+
+.profile-hero.editing {
+  border-color: oklch(76% 0.07 255);
+  background: oklch(98% 0.012 255);
+}
+
+.profile-portrait {
+  width: 164px;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: 12px;
+  background: oklch(93% 0.012 255);
+  box-shadow:
+    0 14px 28px oklch(38% 0.055 260 / 0.16),
+    inset 0 0 0 1px oklch(100% 0 0 / 0.7);
+}
+
+.profile-portrait img,
+.profile-portrait > span {
+  width: 100%;
+  height: 100%;
+  display: flex;
+}
+
+.profile-portrait img {
+  object-fit: cover;
+}
+
+.profile-portrait > span {
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  color: oklch(98% 0.006 255);
+  font-size: 1.35rem;
+  font-weight: 800;
+  text-align: center;
+  word-break: break-all;
+}
+
+.profile-summary {
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.profile-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  justify-content: space-between;
+}
+
+.profile-kicker {
+  margin: 0 0 6px;
+  color: oklch(55% 0.04 260);
+  font-size: 0.76rem;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.profile-title-row h3 {
+  margin: 0;
+  color: oklch(23% 0.04 260);
+  font-size: 1.8rem;
+  line-height: 1.18;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.profile-meta {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: oklch(43% 0.032 260);
+  font-size: 0.94rem;
+}
+
+.profile-meta span {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: oklch(94.5% 0.01 255);
+}
+
+.profile-tags {
+  margin-top: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.profile-tags span {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: oklch(94% 0.018 255);
+  color: oklch(48% 0.15 254);
+  font-size: 0.8rem;
+  font-weight: 720;
+}
+
+.profile-tags .muted-tag {
+  background: oklch(94% 0.008 255);
+  color: oklch(54% 0.026 260);
+}
+
+.editable-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 30px;
+}
+
+.editable-tags span {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: oklch(94% 0.018 255);
+  color: oklch(48% 0.15 254);
+  font-size: 0.78rem;
+  font-weight: 720;
+}
+
+.editable-tags .muted-tag {
+  background: oklch(94% 0.008 255);
+  color: oklch(54% 0.026 260);
+}
+
+.profile-edit-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 
-.field.wide {
-  grid-column: 1 / -1;
+.compact-field {
+  max-width: 220px;
 }
 
-.native-input {
-  width: 100%;
-  min-height: 42px;
-  padding: 0 12px;
-  border: 1px solid oklch(84% 0.018 255);
-  border-radius: 6px;
+.profile-sections {
+  display: grid;
+  gap: 12px;
+}
+
+.profile-section {
+  padding: 18px 20px;
+  border: 1px solid oklch(89% 0.01 255);
+  border-radius: 12px;
   background: oklch(99% 0.004 255);
-  color: oklch(26% 0.035 260);
-  font: inherit;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.profile-section.editing {
+  border-color: oklch(76% 0.07 255);
+  background: oklch(98% 0.012 255);
+  box-shadow: 0 10px 24px oklch(42% 0.04 260 / 0.08);
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.section-head h4 {
+  margin: 0;
+  color: oklch(27% 0.04 260);
+  font-size: 1rem;
+  font-weight: 780;
+}
+
+.section-edit-button {
+  min-width: 66px;
+  padding: 0 13px;
+  border-radius: 8px;
+  background: oklch(99% 0.004 255);
+}
+
+.section-read {
+  margin-top: 14px;
+  display: grid;
+  gap: 14px;
+}
+
+.read-block {
+  display: grid;
+  gap: 5px;
+}
+
+.read-block span {
+  color: oklch(52% 0.03 260);
+  font-size: 0.78rem;
+  font-weight: 760;
+}
+
+.read-block p {
+  max-width: 72ch;
+  margin: 0;
+  color: oklch(33% 0.032 260);
+  font-size: 0.96rem;
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+
+.section-form {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.section-form .field:only-child {
+  grid-column: 1 / -1;
 }
 
 .field :deep(.p-inputtext),
@@ -1046,14 +1550,12 @@ onMounted(refreshCharacters)
 }
 
 :global(.character-dialog .p-inputtext:hover),
-:global(.character-dialog .p-textarea:hover),
-.native-input:hover {
+:global(.character-dialog .p-textarea:hover) {
   border-color: oklch(72% 0.08 255);
 }
 
 :global(.character-dialog .p-inputtext:enabled:focus),
-:global(.character-dialog .p-textarea:enabled:focus),
-.native-input:focus {
+:global(.character-dialog .p-textarea:enabled:focus) {
   border-color: oklch(56% 0.17 258);
   box-shadow: 0 0 0 3px oklch(78% 0.13 255 / 0.32);
 }
@@ -1140,14 +1642,37 @@ onMounted(refreshCharacters)
     width: 74px;
   }
 
-  .form-main,
-  .two-col,
-  .field-grid {
+  .create-layout,
+  .profile-hero,
+  .profile-edit-grid,
+  .section-form {
     grid-template-columns: 1fr;
   }
 
-  .field.wide {
-    grid-column: auto;
+  .profile-hero {
+    padding: 16px;
+  }
+
+  .profile-portrait {
+    width: min(100%, 180px);
+    justify-self: center;
+  }
+
+  .profile-title-row,
+  .section-head {
+    align-items: flex-start;
+  }
+
+  .profile-title-row h3 {
+    font-size: 1.45rem;
+  }
+
+  .compact-field {
+    max-width: none;
+  }
+
+  .section-edit-button {
+    min-height: 40px;
   }
 }
 </style>
