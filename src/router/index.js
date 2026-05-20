@@ -43,8 +43,8 @@ const router = createRouter({
       props: (route) => ({ id: Number(route.params.id) }),
     },
     {
-      // 角色卡管理页：查看角色列表，并承载角色新增 / 详情 / 编辑 / 删除
-      // 后端关系图接口暂未提供，因此关系图入口只在页面内展示为不可用状态。
+      // 角色卡备用路由页：主入口在小说详情页 Tab，这里仅兼容直接访问。
+      // 新增、查看、修改、删除能力由 CharacterCardsPanel 统一承载。
       path: '/novel/:id(\\d+)/characters',
       name: 'character-cards',
       component: () => import('@/views/CharacterCardsView.vue'),

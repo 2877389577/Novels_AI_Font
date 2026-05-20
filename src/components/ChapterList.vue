@@ -163,9 +163,7 @@ defineExpose({
       <Button label="重试" text size="small" @click="fetchPage" />
     </div>
 
-    <div v-else-if="total === 0" class="state empty">
-      还没有章节，点上方「添加章节」开始写作。
-    </div>
+    <div v-else-if="total === 0" class="state empty">还没有章节，点上方「添加章节」开始写作。</div>
 
     <div v-else class="chapter-table" role="table" aria-label="章节列表">
       <div class="table-head" role="row">

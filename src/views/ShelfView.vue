@@ -72,7 +72,12 @@ const pageNumbers = computed(() => {
 })
 
 const showSearchEmpty = computed(() => {
-  return initialLoaded.value && total.value > 0 && Boolean(searchText.value.trim()) && visibleNovels.value.length === 0
+  return (
+    initialLoaded.value &&
+    total.value > 0 &&
+    Boolean(searchText.value.trim()) &&
+    visibleNovels.value.length === 0
+  )
 })
 
 // 拉取指定页：分页模式下每次切页都替换当前 novels，而不是 append。
@@ -366,7 +371,12 @@ function onLogout() {
       </form>
 
       <template #footer>
-        <button class="dialog-button ghost" type="button" :disabled="submitting" @click="showCreate = false">
+        <button
+          class="dialog-button ghost"
+          type="button"
+          :disabled="submitting"
+          @click="showCreate = false"
+        >
           取消
         </button>
         <button

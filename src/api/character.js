@@ -1,7 +1,7 @@
 // ============================================================================
 // character.js —— 小说角色卡相关接口封装
 // ----------------------------------------------------------------------------
-// 接口契约（来自 Apifox / OpenAPI；列表项 id 已由用户确认是文档遗漏）：
+// 接口契约（来自 Apifox / OpenAPI）：
 //   GET    /novels/{id}/characters
 //          分页查询某本小说的角色列表（列表项只含摘要字段）
 //          query: page, pageSize（默认 1 / 10，pageSize 上限 100）
@@ -28,7 +28,7 @@
 
 import http from './http'
 
-// 分页查询某本小说的角色列表（列表项含 id/name/gender/status/tags/image 等摘要字段）
+// 分页查询某本小说的角色列表（列表项含 name/gender/status/tags/image 等摘要字段）
 // @param {number} novelId
 // @param {{ page?: number, pageSize?: number }} params
 export function listCharacters(novelId, params = {}) {

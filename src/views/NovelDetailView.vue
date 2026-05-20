@@ -19,6 +19,7 @@ import Textarea from 'primevue/textarea'
 import { deleteNovel, getNovel, updateNovel } from '@/api/novel'
 import CoverUploader from '@/components/CoverUploader.vue'
 import ChapterList from '@/components/ChapterList.vue'
+import CharacterCardsPanel from '@/components/CharacterCardsPanel.vue'
 
 const props = defineProps({
   id: { type: Number, required: true },
@@ -31,6 +32,12 @@ const toast = useToast()
 // 固定标签：后端暂时没有标签接口，按设计图先在前端静态展示。
 const NOVEL_TAGS = ['玄幻', '东方玄幻']
 
+// 页面一级 Tab：角色卡和小说强绑定，因此入口放在小说详情页内部。
+const DETAIL_TABS = [
+  { key: 'detail', label: '小说详情' },
+  { key: 'characters', label: '角色卡' },
+]
+
 // ───── 页面与请求状态 ─────
 const novel = ref(null) // 后端返回的原始小说数据，详情卡只展示该对象
 const loading = ref(true)
@@ -38,6 +45,7 @@ const loadError = ref('') // 加载阶段错误，例如小说不存在或网络
 const saving = ref(false)
 const deleting = ref(false)
 const showEdit = ref(false)
+const activeTab = ref('detail')
 
 // 编辑表单与原始数据解耦：弹窗未保存的改动不会污染详情卡展示。
 const form = reactive({
@@ -232,19 +240,15 @@ function toNewChapter() {
   })
 }
 
-// 角色卡入口：进入独立管理页，列表 / 新增 / 编辑 / 删除都在该页内完成。
-function toCharacterCards() {
-  router.push({
-    name: 'character-cards',
-    params: { id: props.id },
-  })
-}
-
 function toEditChapter(chapter) {
   router.push({
     name: 'chapter-edit',
     params: { id: props.id, chapterId: chapter.id },
   })
+}
+
+function selectDetailTab(tabKey) {
+  activeTab.value = tabKey
 }
 </script>
 
@@ -278,89 +282,111 @@ function toEditChapter(chapter) {
     </section>
 
     <template v-else-if="novel">
-      <section class="hero-card" aria-labelledby="novel-title">
-        <div class="cover-panel">
-          <img
-            v-if="novel.coverUrl"
-            :src="novel.coverUrl"
-            :alt="`${novel.title || '未命名'}封面`"
-          />
-          <div v-else class="cover-fallback" :style="fallbackCoverStyle">
-            <strong>{{ novel.title || '未命名' }}</strong>
-            <span v-if="novel.authorName">{{ novel.authorName }} 著</span>
+      <nav class="detail-tabs" role="tablist" aria-label="小说详情分区">
+        <button
+          v-for="tab in DETAIL_TABS"
+          :id="`detail-tab-${tab.key}`"
+          :key="tab.key"
+          class="tab-button"
+          type="button"
+          role="tab"
+          :aria-selected="activeTab === tab.key"
+          :aria-controls="`detail-panel-${tab.key}`"
+          @click="selectDetailTab(tab.key)"
+        >
+          {{ tab.label }}
+        </button>
+      </nav>
+
+      <div
+        v-if="activeTab === 'detail'"
+        id="detail-panel-detail"
+        role="tabpanel"
+        aria-labelledby="detail-tab-detail"
+      >
+        <section class="hero-card" aria-labelledby="novel-title">
+          <div class="cover-panel">
+            <img
+              v-if="novel.coverUrl"
+              :src="novel.coverUrl"
+              :alt="`${novel.title || '未命名'}封面`"
+            />
+            <div v-else class="cover-fallback" :style="fallbackCoverStyle">
+              <strong>{{ novel.title || '未命名' }}</strong>
+              <span v-if="novel.authorName">{{ novel.authorName }} 著</span>
+            </div>
           </div>
-        </div>
 
-        <div class="novel-copy">
-          <h2 id="novel-title">{{ novel.title || '未命名' }}</h2>
+          <div class="novel-copy">
+            <h2 id="novel-title">{{ novel.title || '未命名' }}</h2>
 
-          <p class="author-line">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm7 9a7 7 0 0 0-14 0"
-              />
-            </svg>
-            <span>小说作者：</span>
-            <strong>{{ novel.authorName || '佚名' }}</strong>
-          </p>
+            <p class="author-line">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm7 9a7 7 0 0 0-14 0" />
+              </svg>
+              <span>小说作者：</span>
+              <strong>{{ novel.authorName || '佚名' }}</strong>
+            </p>
 
-          <div class="tags" aria-label="小说标签">
-            <span v-for="tag in NOVEL_TAGS" :key="tag">{{ tag }}</span>
+            <div class="tags" aria-label="小说标签">
+              <span v-for="tag in NOVEL_TAGS" :key="tag">{{ tag }}</span>
+            </div>
+
+            <p class="intro">{{ introText }}</p>
           </div>
 
-          <p class="intro">{{ introText }}</p>
-        </div>
+          <div class="hero-actions" aria-label="小说操作">
+            <button
+              class="action-button"
+              type="button"
+              :aria-label="`修改《${novel.title || '未命名'}》`"
+              @click="openEdit"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m4 20 4.4-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z" />
+                <path d="m14 6 4 4" />
+              </svg>
+              修改
+            </button>
 
-        <div class="hero-actions" aria-label="小说操作">
-          <button
-            class="action-button"
-            type="button"
-            :aria-label="`修改《${novel.title || '未命名'}》`"
-            @click="openEdit"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="m4 20 4.4-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z" />
-              <path d="m14 6 4 4" />
-            </svg>
-            修改
-          </button>
+            <button class="action-button primary" type="button" @click="toNewChapter">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              添加章节
+            </button>
 
-          <button class="action-button primary" type="button" @click="toNewChapter">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            添加章节
-          </button>
+            <button
+              class="action-button danger"
+              type="button"
+              :disabled="deleting"
+              @click="onDelete"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7h16" />
+                <path d="M10 11v6M14 11v6" />
+                <path d="M6 7l1 14h10l1-14M9 7V4h6v3" />
+              </svg>
+              {{ deleting ? '删除中' : '删除小说' }}
+            </button>
+          </div>
+        </section>
 
-          <button class="action-button accent" type="button" @click="toCharacterCards">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M8 7a4 4 0 1 0 8 0 4 4 0 0 0-8 0Z" />
-              <path d="M5 21a7 7 0 0 1 14 0" />
-              <path d="M18 8h2M19 7v2" />
-            </svg>
-            角色卡
-          </button>
+        <section class="chapters-card" aria-labelledby="chapters-title">
+          <h2 id="chapters-title" class="sr-only">章节列表</h2>
+          <ChapterList :novel-id="novel.id" @edit="toEditChapter" />
+        </section>
+      </div>
 
-          <button
-            class="action-button danger"
-            type="button"
-            :disabled="deleting"
-            @click="onDelete"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 7h16" />
-              <path d="M10 11v6M14 11v6" />
-              <path d="M6 7l1 14h10l1-14M9 7V4h6v3" />
-            </svg>
-            {{ deleting ? '删除中' : '删除小说' }}
-          </button>
-        </div>
-      </section>
-
-      <section class="chapters-card" aria-labelledby="chapters-title">
-        <h2 id="chapters-title" class="sr-only">章节列表</h2>
-        <ChapterList :novel-id="novel.id" @edit="toEditChapter" />
-      </section>
+      <div
+        v-else
+        id="detail-panel-characters"
+        class="characters-tab-panel"
+        role="tabpanel"
+        aria-labelledby="detail-tab-characters"
+      >
+        <CharacterCardsPanel :novel-id="novel.id" :novel-title="novel.title || ''" />
+      </div>
 
       <Dialog
         v-model:visible="showEdit"
@@ -471,10 +497,50 @@ function toEditChapter(chapter) {
 }
 
 .back-link:focus-visible,
+.tab-button:focus-visible,
 .action-button:focus-visible,
 .delete-row:focus-visible {
   outline: 3px solid oklch(76% 0.14 250 / 0.55);
   outline-offset: 3px;
+}
+
+.detail-tabs {
+  width: fit-content;
+  max-width: 1780px;
+  margin: 0 auto 18px;
+  display: flex;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid oklch(87% 0.014 255);
+  border-radius: 13px;
+  background: oklch(96.5% 0.008 255);
+}
+
+.tab-button {
+  min-width: 128px;
+  min-height: 42px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: oklch(42% 0.035 260);
+  font-size: 0.95rem;
+  font-weight: 740;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    color 0.18s ease;
+}
+
+.tab-button:hover {
+  color: oklch(48% 0.16 255);
+}
+
+.tab-button[aria-selected='true'] {
+  background: oklch(99.2% 0.004 255);
+  color: oklch(48% 0.18 258);
+  box-shadow: 0 8px 18px oklch(42% 0.04 260 / 0.1);
 }
 
 .hero-card,
@@ -610,9 +676,9 @@ function toEditChapter(chapter) {
 .hero-actions {
   align-self: start;
   display: grid;
-  grid-template-columns: repeat(2, minmax(150px, 1fr));
+  grid-template-columns: repeat(3, minmax(132px, 1fr));
   gap: 14px;
-  min-width: 354px;
+  min-width: 470px;
   padding-top: 34px;
   white-space: nowrap;
 }
@@ -649,10 +715,6 @@ function toEditChapter(chapter) {
   color: oklch(52% 0.2 258);
 }
 
-.action-button.accent {
-  color: oklch(46% 0.13 235);
-}
-
 .action-button.danger {
   border-color: oklch(84% 0.065 24);
   color: oklch(55% 0.22 25);
@@ -668,6 +730,11 @@ function toEditChapter(chapter) {
 .chapters-card {
   margin-top: 28px;
   padding: 30px 34px 18px;
+}
+
+.characters-tab-panel {
+  max-width: 1780px;
+  margin: 0 auto;
 }
 
 .state-card {
@@ -945,7 +1012,7 @@ function toEditChapter(chapter) {
     grid-column: 1 / -1;
     width: 100%;
     padding-top: 0;
-    grid-template-columns: repeat(4, minmax(132px, 170px));
+    grid-template-columns: repeat(3, minmax(132px, 170px));
     justify-content: flex-end;
   }
 }
@@ -961,6 +1028,16 @@ function toEditChapter(chapter) {
 
   .page-head h1 {
     font-size: 1.75rem;
+  }
+
+  .detail-tabs {
+    width: 100%;
+    margin-bottom: 14px;
+  }
+
+  .tab-button {
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .hero-card {

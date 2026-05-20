@@ -28,12 +28,21 @@ function onClickDelete(e) {
 </script>
 
 <template>
-  <article class="row" tabindex="0" role="row" @click="onClickRow" @keydown.enter="onClickRow" @keydown.space.prevent="onClickRow">
+  <article
+    class="row"
+    tabindex="0"
+    role="row"
+    @click="onClickRow"
+    @keydown.enter="onClickRow"
+    @keydown.space.prevent="onClickRow"
+  >
     <span class="no" role="cell" data-label="章节号">{{ chapter.chapterNo }}</span>
     <span class="title" role="cell" data-label="章节标题" :title="chapter.title">
       {{ chapter.title || '（未命名）' }}
     </span>
-    <span class="time" role="cell" data-label="创建时间">{{ formatDateTime(chapter.createdAt) }}</span>
+    <span class="time" role="cell" data-label="创建时间">{{
+      formatDateTime(chapter.createdAt)
+    }}</span>
     <button
       class="delete-row"
       type="button"
