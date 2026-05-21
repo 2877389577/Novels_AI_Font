@@ -9,7 +9,7 @@
 -->
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import Dialog from 'primevue/dialog'
@@ -33,6 +33,8 @@ const loading = ref(false)
 const initialLoaded = ref(false)
 const loadError = ref('')
 const searchText = ref('')
+const accountMenuOpen = ref(false)
+const accountMenuRef = ref(null)
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 
@@ -114,7 +116,14 @@ async function fetchPage(targetPage = page.value) {
   }
 }
 
-onMounted(() => fetchPage(1))
+onMounted(() => {
+  fetchPage(1)
+  document.addEventListener('pointerdown', onDocumentPointerDown)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onDocumentPointerDown)
+})
 
 // 创建成功后回到第一页，避免新小说因为分页顺序出现在用户看不到的位置。
 function resetAndReload() {
@@ -188,7 +197,28 @@ function toDetail(novel) {
   router.push({ name: 'novel-detail', params: { id: novel.id } })
 }
 
+function toggleAccountMenu() {
+  accountMenuOpen.value = !accountMenuOpen.value
+}
+
+function closeAccountMenu() {
+  accountMenuOpen.value = false
+}
+
+function onDocumentPointerDown(event) {
+  // 下拉菜单打开后，点击菜单外任意位置即收起，避免浮层残留挡住书架操作。
+  if (!accountMenuOpen.value) return
+  if (accountMenuRef.value?.contains(event.target)) return
+  closeAccountMenu()
+}
+
+function toAISettings() {
+  closeAccountMenu()
+  router.push({ name: 'ai-providers' })
+}
+
 function onLogout() {
+  closeAccountMenu()
   auth.logout()
   router.replace('/login')
 }
@@ -225,7 +255,41 @@ function onLogout() {
           创建小说
         </button>
 
-        <button class="logout-button" type="button" @click="onLogout">退出</button>
+        <div ref="accountMenuRef" class="account-menu">
+          <button
+            class="account-button"
+            type="button"
+            :aria-expanded="accountMenuOpen"
+            aria-haspopup="menu"
+            @click="toggleAccountMenu"
+          >
+            <span class="account-avatar" aria-hidden="true">AI</span>
+            设置
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m7 10 5 5 5-5" />
+            </svg>
+          </button>
+
+          <div v-if="accountMenuOpen" class="account-popover" role="menu">
+            <button class="account-menu-item" type="button" role="menuitem" @click="toAISettings">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+                <path
+                  d="M19.4 15a1.9 1.9 0 0 0 .4 2.1l.1.1-2 2-.1-.1a1.9 1.9 0 0 0-2.1-.4 1.9 1.9 0 0 0-1.1 1.7V20h-2.8v-.1a1.9 1.9 0 0 0-1.2-1.7 1.9 1.9 0 0 0-2.1.4l-.1.1-2-2 .1-.1a1.9 1.9 0 0 0 .4-2.1 1.9 1.9 0 0 0-1.7-1.1H5v-2.8h.2a1.9 1.9 0 0 0 1.7-1.2 1.9 1.9 0 0 0-.4-2.1l-.1-.1 2-2 .1.1a1.9 1.9 0 0 0 2.1.4 1.9 1.9 0 0 0 1.2-1.7V4h2.8v.1a1.9 1.9 0 0 0 1.1 1.7 1.9 1.9 0 0 0 2.1-.4l.1-.1 2 2-.1.1a1.9 1.9 0 0 0-.4 2.1 1.9 1.9 0 0 0 1.7 1.2h.1v2.8h-.1a1.9 1.9 0 0 0-1.7 1.1Z"
+                />
+              </svg>
+              AI 设置
+            </button>
+            <button class="account-menu-item danger" type="button" role="menuitem" @click="onLogout">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M10 17l5-5-5-5" />
+                <path d="M15 12H4" />
+                <path d="M20 5v14" />
+              </svg>
+              退出登录
+            </button>
+          </div>
+        </div>
       </div>
     </header>
 
@@ -441,6 +505,8 @@ function onLogout() {
 .brand-icon svg,
 .search-box svg,
 .create-button svg,
+.account-button svg,
+.account-menu-item svg,
 .sort-control svg,
 .view-button svg,
 .page-button svg {
@@ -535,18 +601,110 @@ function onLogout() {
   box-shadow: 0 14px 30px oklch(18% 0.01 260 / 0.2);
 }
 
-.logout-button {
-  min-height: 44px;
-  padding: 0 4px;
-  border: 0;
-  background: transparent;
-  color: oklch(50% 0.03 260);
-  font: inherit;
-  cursor: pointer;
+.account-menu {
+  position: relative;
 }
 
-.logout-button:hover {
+.account-button {
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 14px 0 8px;
+  border: 1px solid oklch(86% 0.012 255);
+  border-radius: 999px;
+  background: oklch(99.2% 0.004 255);
+  color: oklch(35% 0.035 260);
+  font: inherit;
+  font-weight: 740;
+  cursor: pointer;
+  box-shadow: 0 8px 24px oklch(40% 0.03 260 / 0.05);
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    color 0.18s ease;
+}
+
+.account-button:hover,
+.account-button[aria-expanded='true'] {
+  border-color: oklch(70% 0.08 255);
+  background: oklch(96.5% 0.012 255);
   color: oklch(22% 0.02 260);
+}
+
+.account-button svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.account-avatar {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: oklch(18% 0.01 260);
+  color: oklch(98% 0.004 255);
+  font-size: 0.72rem;
+  font-weight: 820;
+  letter-spacing: 0.04em;
+}
+
+.account-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 20;
+  width: 188px;
+  padding: 8px;
+  border: 1px solid oklch(87% 0.014 255);
+  border-radius: 12px;
+  background: oklch(99.4% 0.003 255);
+  box-shadow:
+    0 22px 54px oklch(34% 0.045 260 / 0.16),
+    0 1px 2px oklch(34% 0.045 260 / 0.08);
+}
+
+.account-menu-item {
+  width: 100%;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: oklch(34% 0.035 260);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 720;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.account-menu-item:hover {
+  background: oklch(94.5% 0.014 255);
+  color: oklch(48% 0.16 255);
+}
+
+.account-menu-item.danger {
+  color: oklch(52% 0.19 24);
+}
+
+.account-menu-item.danger:hover {
+  background: oklch(96% 0.022 24);
+}
+
+.account-menu-item svg {
+  width: 1.05rem;
+  height: 1.05rem;
 }
 
 .library {
@@ -833,7 +991,8 @@ function onLogout() {
 }
 
 .create-button:focus-visible,
-.logout-button:focus-visible,
+.account-button:focus-visible,
+.account-menu-item:focus-visible,
 .search-box:focus-within,
 .view-button:focus-visible,
 .page-button:focus-visible,
@@ -1002,8 +1161,16 @@ function onLogout() {
   }
 
   .search-box,
-  .create-button {
+  .create-button,
+  .account-menu,
+  .account-button {
     width: 100%;
+  }
+
+  .account-popover {
+    position: static;
+    width: 100%;
+    margin-top: 8px;
   }
 
   .library {

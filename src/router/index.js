@@ -34,6 +34,13 @@ const router = createRouter({
       meta: { title: '书架 · AI 小说系统' },
     },
     {
+      // AI 设置：管理后端可用的 AI 提供商，入口放在书架右上角账号菜单内。
+      path: '/ai-providers',
+      name: 'ai-providers',
+      component: () => import('@/views/AIProviderView.vue'),
+      meta: { title: 'AI 设置 · AI 小说系统' },
+    },
+    {
       // 小说详情页：编辑/删除单本小说
       path: '/novel/:id(\\d+)',
       name: 'novel-detail',
