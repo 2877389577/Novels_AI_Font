@@ -23,8 +23,8 @@ const props = defineProps({
   novelId: { type: Number, required: true },
 })
 
-// 父组件决定章节点击后的路由行为，列表只负责把章节对象抛出。
-const emit = defineEmits(['edit'])
+// 父组件决定章节点击后的路由行为；生成角色卡也由父页管理弹窗和接口状态。
+const emit = defineEmits(['edit', 'generate-character-card'])
 
 const confirm = useConfirm()
 const toast = useToast()
@@ -107,6 +107,10 @@ function onRowClick(chapter) {
   emit('edit', chapter)
 }
 
+function onGenerateCharacterCard(chapter) {
+  emit('generate-character-card', chapter)
+}
+
 function onRowDelete(chapter) {
   confirm.require({
     header: '确认删除',
@@ -170,7 +174,7 @@ defineExpose({
         <span role="columnheader">章节号</span>
         <span role="columnheader">章节标题</span>
         <span role="columnheader">创建时间</span>
-        <span class="action-head" aria-hidden="true"></span>
+        <span class="action-head" role="columnheader">操作</span>
       </div>
 
       <div class="rows" role="rowgroup">
@@ -180,6 +184,7 @@ defineExpose({
           :chapter="c"
           @click="onRowClick"
           @delete="onRowDelete"
+          @generate-character-card="onGenerateCharacterCard"
         />
       </div>
     </div>
@@ -224,13 +229,17 @@ defineExpose({
 
 .table-head {
   display: grid;
-  grid-template-columns: 180px minmax(220px, 1fr) 260px 56px;
+  grid-template-columns: 160px minmax(220px, 1fr) 240px 196px;
   align-items: center;
   min-height: 54px;
   padding: 0 28px;
   color: oklch(34% 0.032 260);
   font-size: 1rem;
   font-weight: 760;
+}
+
+.action-head {
+  text-align: right;
 }
 
 .rows {

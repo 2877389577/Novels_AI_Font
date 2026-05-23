@@ -9,6 +9,12 @@
 //                              body: { name*, providerType*, baseUrl*, apiKey*,
 //                                      configJson, isEnabled, models,
 //                                      maxContextLength, maxInputTokens, maxOutputTokens }
+//   POST   /ai-providers/enable
+//                              一键启用指定 AI 提供商，并由后端关闭其它已启用提供商
+//                              body: { id* }
+//   GET    /ai-providers/models
+//                              查询当前已启用 AI 提供商在数据库中保存的模型列表
+//                              data: { models: string[] }
 //   POST   /ai-providers/models/query
 //                              查询当前连接信息可用的模型列表
 //                              body: { baseUrl*, apiKey* }
@@ -37,6 +43,16 @@ export function getAIProvider(id) {
 // 新增 AI 提供商；name/providerType/baseUrl/apiKey 为后端必填字段。
 export function createAIProvider(payload) {
   return http.post('/ai-providers', payload)
+}
+
+// 一键启用指定 AI 提供商；后端会在同一事务里关闭其它已启用的提供商。
+export function enableAIProvider(id) {
+  return http.post('/ai-providers/enable', { id })
+}
+
+// 查询当前已启用 AI 提供商保存的模型列表；不触发上游模型探测请求。
+export function listAIProviderModels() {
+  return http.get('/ai-providers/models')
 }
 
 // 查询 AI 提供商支持的模型列表；只使用当前表单里的连接信息，不会写入数据库。

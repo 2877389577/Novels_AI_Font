@@ -16,10 +16,13 @@ import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
+import { listAIProviderModels } from '@/api/aiProvider'
+import { generateCharacterCards } from '@/api/character'
 import { deleteNovel, getNovel, updateNovel } from '@/api/novel'
 import CoverUploader from '@/components/CoverUploader.vue'
 import ChapterList from '@/components/ChapterList.vue'
 import CharacterCardsPanel from '@/components/CharacterCardsPanel.vue'
+import GeneratedCharacterCardsDialog from '@/components/GeneratedCharacterCardsDialog.vue'
 
 const props = defineProps({
   id: { type: Number, required: true },
@@ -46,6 +49,18 @@ const saving = ref(false)
 const deleting = ref(false)
 const showEdit = ref(false)
 const activeTab = ref('detail')
+
+// AI 生成角色卡流程：章节行只负责触发，模型选择和生成结果都由详情页统一管理。
+const showModelDialog = ref(false)
+const selectedChapter = ref(null)
+const modelOptions = ref([])
+const selectedModelName = ref('')
+const modelLoading = ref(false)
+const modelError = ref('')
+const showGeneratedCardsDialog = ref(false)
+const generatedCards = ref([])
+const generatingCards = ref(false)
+const generateError = ref('')
 
 // 编辑表单与原始数据解耦：弹窗未保存的改动不会污染详情卡展示。
 const form = reactive({
@@ -94,6 +109,16 @@ const dirty = computed(() => {
 
 // 详情简介展示：后端没有简介时给出克制占位，避免信息卡出现突兀空洞。
 const introText = computed(() => novel.value?.intro?.trim() || '这本小说还没有简介。')
+
+const selectedChapterLabel = computed(() => {
+  if (!selectedChapter.value) return '当前章节'
+  const no = selectedChapter.value.chapterNo ? `第 ${selectedChapter.value.chapterNo} 章` : '当前章节'
+  return selectedChapter.value.title ? `${no}《${selectedChapter.value.title}》` : no
+})
+
+const canStartGeneration = computed(() => {
+  return !modelLoading.value && !generatingCards.value && Boolean(selectedModelName.value)
+})
 
 // 将后端数据同步到编辑表单，用于打开弹窗、撤销修改、关闭弹窗后的状态复原。
 function syncForm(n) {
@@ -247,6 +272,112 @@ function toEditChapter(chapter) {
   })
 }
 
+function normalizeModelList(value) {
+  // 模型列表来自后端保存值，仍做去重和空值过滤，避免下拉框出现不可选择的空项。
+  const source = Array.isArray(value) ? value : []
+  const seen = new Set()
+  const result = []
+  source.forEach((item) => {
+    const model = String(item || '').trim()
+    if (!model || seen.has(model)) return
+    seen.add(model)
+    result.push(model)
+  })
+  return result
+}
+
+function normalizeGeneratedCards(value) {
+  // 生成接口按数组一次性返回，这里只过滤掉非对象项，具体字段展示交给结果弹窗兜底。
+  return Array.isArray(value)
+    ? value.filter((item) => item && typeof item === 'object').map((item) => ({ ...item }))
+    : []
+}
+
+async function fetchModelOptions() {
+  if (modelLoading.value) return
+  modelLoading.value = true
+  modelError.value = ''
+  try {
+    const res = await listAIProviderModels()
+    if (res?.code === 0) {
+      modelOptions.value = normalizeModelList(res.data?.models)
+      selectedModelName.value = ''
+    } else {
+      modelError.value = res?.msg || '模型列表加载失败'
+      toast.add({
+        severity: 'error',
+        summary: '模型加载失败',
+        detail: res?.msg || '请稍后重试',
+        life: 3000,
+      })
+    }
+  } catch (e) {
+    modelError.value = e?.message || '模型列表加载失败'
+    toast.add({
+      severity: 'error',
+      summary: '网络错误',
+      detail: e?.message || '请稍后重试',
+      life: 3000,
+    })
+  } finally {
+    modelLoading.value = false
+  }
+}
+
+function openCharacterCardGenerator(chapter) {
+  if (!chapter?.id || generatingCards.value) return
+  selectedChapter.value = chapter
+  selectedModelName.value = ''
+  modelOptions.value = []
+  modelError.value = ''
+  showModelDialog.value = true
+  fetchModelOptions()
+}
+
+function closeModelDialog() {
+  if (modelLoading.value) return
+  showModelDialog.value = false
+}
+
+function onModelSelectionChange() {
+  if (!selectedModelName.value) return
+  startGenerateCharacterCards()
+}
+
+async function startGenerateCharacterCards() {
+  if (!canStartGeneration.value || !selectedChapter.value?.id) return
+  showModelDialog.value = false
+  showGeneratedCardsDialog.value = true
+  generatingCards.value = true
+  generatedCards.value = []
+  generateError.value = ''
+
+  try {
+    const res = await generateCharacterCards(selectedChapter.value.id, selectedModelName.value)
+    if (res?.code === 0) {
+      generatedCards.value = normalizeGeneratedCards(res.data)
+    } else {
+      generateError.value = res?.msg || '角色卡生成失败'
+      toast.add({
+        severity: 'error',
+        summary: '生成失败',
+        detail: res?.msg || '请稍后重试',
+        life: 3000,
+      })
+    }
+  } catch (e) {
+    generateError.value = e?.message || '角色卡生成失败'
+    toast.add({
+      severity: 'error',
+      summary: '网络错误',
+      detail: e?.message || '请稍后重试',
+      life: 3000,
+    })
+  } finally {
+    generatingCards.value = false
+  }
+}
+
 function selectDetailTab(tabKey) {
   activeTab.value = tabKey
 }
@@ -374,7 +505,11 @@ function selectDetailTab(tabKey) {
 
         <section class="chapters-card" aria-labelledby="chapters-title">
           <h2 id="chapters-title" class="sr-only">章节列表</h2>
-          <ChapterList :novel-id="novel.id" @edit="toEditChapter" />
+          <ChapterList
+            :novel-id="novel.id"
+            @edit="toEditChapter"
+            @generate-character-card="openCharacterCardGenerator"
+          />
         </section>
       </div>
 
@@ -432,6 +567,62 @@ function selectDetailTab(tabKey) {
           <Button label="保存" :disabled="!dirty || saving" :loading="saving" @click="onSave" />
         </template>
       </Dialog>
+
+      <Dialog
+        v-model:visible="showModelDialog"
+        header="选择生成模型"
+        :modal="true"
+        :draggable="false"
+        :closable="!modelLoading"
+        :style="{ width: '520px', maxWidth: 'calc(100vw - 32px)' }"
+        class="model-dialog"
+      >
+        <section class="model-picker" aria-live="polite">
+          <div class="model-target">
+            <span>章节</span>
+            <strong>{{ selectedChapterLabel }}</strong>
+          </div>
+
+          <div v-if="modelLoading" class="model-loading">
+            <span class="model-spinner" aria-hidden="true"></span>
+            <span>正在读取可用模型...</span>
+          </div>
+
+          <div v-else-if="modelError" class="model-state error">
+            <p>{{ modelError }}</p>
+            <button type="button" @click="fetchModelOptions">重试</button>
+          </div>
+
+          <div v-else-if="modelOptions.length === 0" class="model-state">
+            <p>当前启用的 AI 提供商没有可用模型。</p>
+          </div>
+
+          <label v-else class="model-field">
+            <span>模型</span>
+            <select v-model="selectedModelName" @change="onModelSelectionChange">
+              <option value="" disabled>请选择模型</option>
+              <option v-for="model in modelOptions" :key="model" :value="model">
+                {{ model }}
+              </option>
+            </select>
+          </label>
+        </section>
+
+        <template #footer>
+          <Button label="取消" text :disabled="modelLoading" @click="closeModelDialog" />
+        </template>
+      </Dialog>
+
+      <GeneratedCharacterCardsDialog
+        v-model:visible="showGeneratedCardsDialog"
+        :loading="generatingCards"
+        :error="generateError"
+        :cards="generatedCards"
+        :chapter="selectedChapter"
+        :model-name="selectedModelName"
+        :novel-id="novel.id"
+        @retry="startGenerateCharacterCards"
+      />
     </template>
   </main>
 </template>
@@ -499,7 +690,9 @@ function selectDetailTab(tabKey) {
 .back-link:focus-visible,
 .tab-button:focus-visible,
 .action-button:focus-visible,
-.delete-row:focus-visible {
+.delete-row:focus-visible,
+.model-field select:focus-visible,
+.model-state button:focus-visible {
   outline: 3px solid oklch(76% 0.14 250 / 0.55);
   outline-offset: 3px;
 }
@@ -845,6 +1038,141 @@ function selectDetailTab(tabKey) {
   width: 100%;
 }
 
+.model-picker {
+  display: grid;
+  gap: 18px;
+}
+
+.model-target {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid oklch(88% 0.012 255);
+  border-radius: 12px;
+  background: oklch(98.5% 0.006 255);
+}
+
+.model-target span,
+.model-field > span {
+  color: oklch(52% 0.03 260);
+  font-size: 0.8rem;
+  font-weight: 760;
+}
+
+.model-target strong {
+  color: oklch(26% 0.04 260);
+  font-size: 1rem;
+  line-height: 1.45;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.model-loading {
+  min-height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: oklch(48% 0.035 260);
+  font-size: 0.94rem;
+}
+
+.model-spinner {
+  width: 21px;
+  height: 21px;
+  border: 2px solid oklch(84% 0.02 255);
+  border-top-color: oklch(54% 0.18 258);
+  border-radius: 50%;
+  animation: model-spin 0.82s linear infinite;
+}
+
+@keyframes model-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.model-state {
+  min-height: 116px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid oklch(88% 0.012 255);
+  border-radius: 12px;
+  background: oklch(98.5% 0.006 255);
+  text-align: center;
+}
+
+.model-state.error {
+  border-color: oklch(86% 0.05 24);
+  background: oklch(98% 0.014 24);
+}
+
+.model-state p {
+  max-width: 30rem;
+  margin: 0;
+  color: oklch(48% 0.032 260);
+  line-height: 1.7;
+}
+
+.model-state.error p {
+  color: oklch(52% 0.18 24);
+}
+
+.model-state button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid oklch(82% 0.026 255);
+  border-radius: 8px;
+  background: oklch(99% 0.004 255);
+  color: oklch(48% 0.16 255);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 760;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.model-state button:hover {
+  border-color: oklch(70% 0.08 255);
+  background: oklch(95% 0.022 255);
+  transform: translateY(-1px);
+}
+
+.model-field {
+  display: grid;
+  gap: 8px;
+}
+
+.model-field select {
+  min-height: 46px;
+  width: 100%;
+  padding: 0 12px;
+  border: 1px solid oklch(84% 0.018 255);
+  border-radius: 9px;
+  outline: 0;
+  background: oklch(99% 0.004 255);
+  color: oklch(26% 0.035 260);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.model-field select:hover {
+  border-color: oklch(72% 0.08 255);
+  background: oklch(98% 0.008 255);
+}
+
 /*
   PrimeVue Dialog 会渲染到浮层层级，组件内部的 header/content/footer
   不会完全吃到本页 scoped 选择器。因此这里用 :global 精准覆盖
@@ -932,6 +1260,71 @@ function selectDetailTab(tabKey) {
 }
 
 :global(.edit-dialog .p-button-text:hover) {
+  background: oklch(94% 0.014 255);
+  color: oklch(48% 0.18 258);
+}
+
+:global(.p-dialog-mask:has(.model-dialog)) {
+  background: oklch(20% 0.035 260 / 0.28);
+  backdrop-filter: blur(3px);
+}
+
+:global(.model-dialog.p-dialog) {
+  overflow: hidden;
+  border: 1px solid oklch(87% 0.014 255);
+  border-radius: 16px;
+  background: oklch(99.2% 0.004 255);
+  color: oklch(26% 0.035 260);
+  box-shadow:
+    0 24px 70px oklch(34% 0.045 260 / 0.22),
+    0 1px 2px oklch(34% 0.045 260 / 0.1);
+}
+
+:global(.model-dialog .p-dialog-header),
+:global(.model-dialog .p-dialog-content),
+:global(.model-dialog .p-dialog-footer) {
+  background: oklch(99.2% 0.004 255);
+  color: oklch(24% 0.035 260);
+}
+
+:global(.model-dialog .p-dialog-header) {
+  padding: 22px 24px 16px;
+  border-bottom: 1px solid oklch(91% 0.01 255);
+}
+
+:global(.model-dialog .p-dialog-title) {
+  font-size: 1.125rem;
+  font-weight: 760;
+}
+
+:global(.model-dialog .p-dialog-content) {
+  padding: 22px 24px 8px;
+}
+
+:global(.model-dialog .p-dialog-footer) {
+  gap: 10px;
+  padding: 16px 24px 22px;
+  border-top: 1px solid oklch(91% 0.01 255);
+}
+
+:global(.model-dialog .p-dialog-header-icon) {
+  color: oklch(42% 0.035 260);
+}
+
+:global(.model-dialog .p-dialog-header-icon:hover) {
+  background: oklch(94% 0.014 255);
+  color: oklch(48% 0.18 258);
+}
+
+:global(.model-dialog .p-button) {
+  border-radius: 9px;
+}
+
+:global(.model-dialog .p-button-text) {
+  color: oklch(42% 0.04 260);
+}
+
+:global(.model-dialog .p-button-text:hover) {
   background: oklch(94% 0.014 255);
   color: oklch(48% 0.18 258);
 }
@@ -1099,6 +1492,22 @@ function selectDetailTab(tabKey) {
   .state-cover {
     width: min(100%, 220px);
     justify-self: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .model-spinner {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+  }
+
+  .model-state button,
+  .model-field select {
+    transition-duration: 0.01ms;
+  }
+
+  .model-state button:hover {
+    transform: none;
   }
 }
 </style>

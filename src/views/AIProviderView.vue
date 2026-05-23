@@ -16,6 +16,7 @@ import Dialog from 'primevue/dialog'
 import {
   createAIProvider,
   deleteAIProvider,
+  enableAIProvider,
   getAIProvider,
   listAIProviders,
   queryAIProviderModels,
@@ -42,6 +43,7 @@ const showFormApiKey = ref(false)
 const detailLoading = ref(false)
 const saving = ref(false)
 const deletingId = ref(null)
+const enablingId = ref(null)
 const modelInput = ref('')
 const modelCandidates = ref([])
 const modelQuerying = ref(false)
@@ -509,6 +511,42 @@ async function onSubmit() {
   }
 }
 
+async function onEnable(provider) {
+  const id = providerIdOf(provider)
+  if (!id || enablingId.value || provider?.isEnabled !== false) return
+
+  enablingId.value = id
+  try {
+    const res = await enableAIProvider(id)
+    if (res?.code === 0) {
+      toast.add({
+        severity: 'success',
+        summary: '已启用',
+        detail: provider.name || 'AI 提供商',
+        life: 2200,
+      })
+      // 后端会同时关闭其它已启用提供商，成功后必须以服务端列表为准刷新当前页。
+      await fetchProviders(page.value)
+    } else {
+      toast.add({
+        severity: 'error',
+        summary: '启用失败',
+        detail: res?.msg || '请稍后重试',
+        life: 3000,
+      })
+    }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: '网络错误',
+      detail: e?.message || '请稍后重试',
+      life: 3000,
+    })
+  } finally {
+    enablingId.value = null
+  }
+}
+
 function onDelete(provider) {
   const id = providerIdOf(provider)
   if (!id || deletingId.value) return
@@ -673,6 +711,13 @@ function goBack() {
                 <td data-label="更新时间">{{ displayUpdatedAt(provider) }}</td>
                 <td data-label="操作">
                   <div class="row-actions">
+                    <button
+                      type="button"
+                      :disabled="provider.isEnabled !== false || Boolean(enablingId)"
+                      @click="onEnable(provider)"
+                    >
+                      {{ enablingId === providerIdOf(provider) ? '启用中' : '启用' }}
+                    </button>
                     <button type="button" @click="openEdit(provider)">修改</button>
                     <button
                       class="danger"

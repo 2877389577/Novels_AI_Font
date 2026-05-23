@@ -24,6 +24,8 @@ import {
   updateCharacter,
 } from '@/api/character'
 import CoverUploader from '@/components/CoverUploader.vue'
+import maleAvatar from '@/assets/images/默认男性角色图像.png'
+import femaleAvatar from '@/assets/images/默认女性角色图像.png'
 
 const props = defineProps({
   // 所属小说 ID，来自小说详情页或备用角色卡路由。
@@ -41,15 +43,6 @@ const STATUS_OPTIONS = [
 ]
 
 const GENDER_OPTIONS = ['男', '女']
-
-const AVATAR_GRADIENTS = [
-  ['oklch(74% 0.13 180)', 'oklch(58% 0.15 245)'],
-  ['oklch(75% 0.16 72)', 'oklch(61% 0.18 28)'],
-  ['oklch(69% 0.17 330)', 'oklch(55% 0.18 270)'],
-  ['oklch(72% 0.13 150)', 'oklch(55% 0.13 212)'],
-  ['oklch(77% 0.14 96)', 'oklch(61% 0.16 18)'],
-  ['oklch(66% 0.15 232)', 'oklch(38% 0.08 255)'],
-]
 
 const PROFILE_SECTIONS = [
   {
@@ -243,19 +236,17 @@ function statusLabel(status) {
   return STATUS_OPTIONS.find((option) => option.value === status)?.label || '未设定'
 }
 
-function initials(name = '') {
-  const text = name.trim()
-  return text ? text.slice(0, 2) : '角色'
+function characterAvatarSrc(character = {}) {
+  // 角色真实形象图优先展示；后端没有返回图片时，按性别回退到本地默认角色图。
+  // 性别只明确区分“女”，其余值统一使用男性默认图，和现有 normalizeGender 规则保持一致。
+  const imageUrl = String(character.appearanceImgUrl || '').trim()
+  if (imageUrl) return imageUrl
+  return normalizeGender(character.gender) === '女' ? femaleAvatar : maleAvatar
 }
 
-function avatarStyle(character = {}) {
-  const name = character.name || ''
-  let hash = 0
-  for (let i = 0; i < name.length; i++) {
-    hash = (hash * 31 + name.charCodeAt(i)) & 0x7fffffff
-  }
-  const [a, b] = AVATAR_GRADIENTS[hash % AVATAR_GRADIENTS.length]
-  return { background: `linear-gradient(135deg, ${a} 0%, ${b} 100%)` }
+function characterAvatarAlt(character = {}) {
+  const name = character.name || '未命名'
+  return character.appearanceImgUrl ? `${name}形象图` : `${name}默认形象图`
 }
 
 function textOrFallback(value, fallback = '暂未记录') {
@@ -569,12 +560,7 @@ onMounted(refreshCharacters)
           </button>
 
           <div class="avatar">
-            <img
-              v-if="character.appearanceImgUrl"
-              :src="character.appearanceImgUrl"
-              :alt="`${character.name || '未命名'}形象图`"
-            />
-            <span v-else :style="avatarStyle(character)">{{ initials(character.name) }}</span>
+            <img :src="characterAvatarSrc(character)" :alt="characterAvatarAlt(character)" />
           </div>
 
           <div class="card-copy">
@@ -673,11 +659,10 @@ onMounted(refreshCharacters)
             <div class="profile-portrait">
               <CoverUploader v-if="isSectionEditing('basic')" v-model="form.appearanceImgUrl" />
               <img
-                v-else-if="form.appearanceImgUrl"
-                :src="form.appearanceImgUrl"
-                :alt="`${form.name || '未命名'}形象图`"
+                v-else
+                :src="characterAvatarSrc(form)"
+                :alt="characterAvatarAlt(form)"
               />
-              <span v-else :style="avatarStyle(form)">{{ initials(form.name) }}</span>
             </div>
 
             <div class="profile-summary">
@@ -1050,26 +1035,11 @@ onMounted(refreshCharacters)
     inset 0 0 0 1px oklch(100% 0 0 / 0.72);
 }
 
-.avatar img,
-.avatar span {
+.avatar img {
   width: 100%;
   height: 100%;
-  display: flex;
-}
-
-.avatar img {
+  display: block;
   object-fit: cover;
-}
-
-.avatar span {
-  align-items: center;
-  justify-content: center;
-  padding: 10px;
-  color: oklch(98% 0.006 255);
-  font-size: 1.18rem;
-  font-weight: 800;
-  text-align: center;
-  word-break: break-all;
 }
 
 .card-copy {
@@ -1274,26 +1244,11 @@ onMounted(refreshCharacters)
     inset 0 0 0 1px oklch(100% 0 0 / 0.7);
 }
 
-.profile-portrait img,
-.profile-portrait > span {
+.profile-portrait img {
   width: 100%;
   height: 100%;
-  display: flex;
-}
-
-.profile-portrait img {
+  display: block;
   object-fit: cover;
-}
-
-.profile-portrait > span {
-  align-items: center;
-  justify-content: center;
-  padding: 18px;
-  color: oklch(98% 0.006 255);
-  font-size: 1.35rem;
-  font-weight: 800;
-  text-align: center;
-  word-break: break-all;
 }
 
 .profile-summary {

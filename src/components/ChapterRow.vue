@@ -14,10 +14,16 @@ const props = defineProps({
   chapter: { type: Object, required: true },
 })
 
-const emit = defineEmits(['click', 'delete'])
+const emit = defineEmits(['click', 'delete', 'generate-character-card'])
 
 function onClickRow() {
   emit('click', props.chapter)
+}
+
+// 生成角色卡是章节行内操作，必须阻止冒泡，避免同时进入章节编辑页。
+function onClickGenerate(e) {
+  e.stopPropagation()
+  emit('generate-character-card', props.chapter)
 }
 
 // 删除按钮阻止冒泡，避免用户点删除时同时进入章节编辑页。
@@ -33,8 +39,8 @@ function onClickDelete(e) {
     tabindex="0"
     role="row"
     @click="onClickRow"
-    @keydown.enter="onClickRow"
-    @keydown.space.prevent="onClickRow"
+    @keydown.enter.self="onClickRow"
+    @keydown.space.prevent.self="onClickRow"
   >
     <span class="no" role="cell" data-label="章节号">{{ chapter.chapterNo }}</span>
     <span class="title" role="cell" data-label="章节标题" :title="chapter.title">
@@ -43,27 +49,30 @@ function onClickDelete(e) {
     <span class="time" role="cell" data-label="创建时间">{{
       formatDateTime(chapter.createdAt)
     }}</span>
-    <button
-      class="delete-row"
-      type="button"
-      :aria-label="`删除第 ${chapter.chapterNo} 章`"
-      title="删除章节"
-      @click="onClickDelete"
-    >
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M4 7h16" />
-        <path d="M10 11v6M14 11v6" />
-        <path d="M6 7l1 14h10l1-14M9 7V4h6v3" />
-      </svg>
-      <span>删除</span>
-    </button>
+    <div class="row-actions" role="cell" data-label="操作">
+      <button class="generate-row" type="button" @click="onClickGenerate">生成角色卡</button>
+      <button
+        class="delete-row"
+        type="button"
+        :aria-label="`删除第 ${chapter.chapterNo} 章`"
+        title="删除章节"
+        @click="onClickDelete"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 7h16" />
+          <path d="M10 11v6M14 11v6" />
+          <path d="M6 7l1 14h10l1-14M9 7V4h6v3" />
+        </svg>
+        <span>删除</span>
+      </button>
+    </div>
   </article>
 </template>
 
 <style scoped>
 .row {
   display: grid;
-  grid-template-columns: 180px minmax(220px, 1fr) 260px 56px;
+  grid-template-columns: 160px minmax(220px, 1fr) 240px 196px;
   align-items: center;
   min-height: 58px;
   padding: 0 28px;
@@ -113,23 +122,55 @@ function onClickDelete(e) {
   font-size: 1rem;
 }
 
+.row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.generate-row,
 .delete-row {
-  width: 36px;
   height: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  justify-self: end;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: oklch(55% 0.22 25);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 760;
   cursor: pointer;
-  opacity: 0.68;
   transition:
     background 0.18s ease,
     border-color 0.18s ease,
-    opacity 0.18s ease;
+    color 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.generate-row {
+  min-width: 104px;
+  padding: 0 10px;
+  border-color: oklch(82% 0.026 255);
+  color: oklch(48% 0.16 255);
+  white-space: nowrap;
+}
+
+.delete-row {
+  width: 36px;
+  color: oklch(55% 0.22 25);
+  opacity: 0.68;
+}
+
+.generate-row:hover,
+.generate-row:focus-visible {
+  border-color: oklch(70% 0.08 255);
+  background: oklch(95% 0.022 255);
+  color: oklch(48% 0.18 258);
+  outline: none;
+  transform: translateY(-1px);
 }
 
 .delete-row svg {
@@ -202,6 +243,24 @@ function onClickDelete(e) {
     grid-column: 2;
     grid-row: 1 / span 3;
     align-self: center;
+  }
+
+  .row-actions {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+    align-self: center;
+    flex-direction: column;
+  }
+
+  .generate-row {
+    min-width: 88px;
+    height: 34px;
+    font-size: 0.78rem;
+  }
+
+  .delete-row {
+    grid-column: auto;
+    grid-row: auto;
   }
 }
 </style>

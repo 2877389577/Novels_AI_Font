@@ -22,6 +22,11 @@
 //   DELETE /novels/{id}/characters/{characterId}
 //          软删除指定角色
 //
+//   GET    /novels/chapters/{id}/characters/generate-card
+//          根据章节内容和指定模型生成角色卡预览
+//          query: modelName
+//          data:  CharacterCardTool[]
+//
 // 与现有 chapter.js 保持一致：API 层只负责路径与 HTTP 方法，业务码 code
 // 仍交给页面组件按场景分流，避免在拦截器里吞掉后端业务语义。
 // ============================================================================
@@ -43,6 +48,17 @@ export function getCharacter(novelId, characterId) {
 // 新增角色卡，name 必填，其余字段按页面表单结果传入
 export function createCharacter(novelId, payload) {
   return http.post(`/novels/${novelId}/characters`, payload)
+}
+
+// 根据章节内容生成角色卡预览；接口只依赖章节 ID，不需要小说 ID。
+// @param {number} chapterId
+// @param {string} modelName
+export function generateCharacterCards(chapterId, modelName) {
+  return http.get(`/novels/chapters/${chapterId}/characters/generate-card`, {
+    params: { modelName },
+    // 该接口会等待 AI 完整生成角色卡，耗时明显高于普通 CRUD；只给本请求放宽到 60 秒。
+    timeout: 180000,
+  })
 }
 
 // 更新角色卡，后端支持局部更新；页面会按当前表单构造 payload
