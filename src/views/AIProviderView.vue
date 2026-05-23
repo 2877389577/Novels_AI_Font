@@ -57,8 +57,10 @@ const form = reactive({
   baseUrl: '',
   apiKey: '',
   models: [],
-  priority: '100',
-  isEnabled: true,
+  maxContextLength: '',
+  maxInputTokens: '',
+  maxOutputTokens: '',
+  isEnabled: false,
   configJson: '',
 })
 
@@ -72,7 +74,7 @@ const submitLabel = computed(() => {
 const canSubmit = computed(() => {
   if (saving.value || detailLoading.value) return false
   if (!form.name.trim() || !form.providerType.trim() || !form.baseUrl.trim()) return false
-  return isEdit.value || Boolean(form.apiKey.trim())
+  return Boolean(form.apiKey.trim())
 })
 
 // 页码最多展示 5 个，避免分页控件在小屏下过长。
@@ -163,8 +165,10 @@ function resetForm() {
   form.baseUrl = ''
   form.apiKey = ''
   form.models = []
-  form.priority = '100'
-  form.isEnabled = true
+  form.maxContextLength = ''
+  form.maxInputTokens = ''
+  form.maxOutputTokens = ''
+  form.isEnabled = false
   form.configJson = ''
 }
 
@@ -188,14 +192,17 @@ function onEditorHide() {
 function syncForm(provider = {}) {
   mode.value = 'edit'
   activeProviderId.value = provider.id
-  showFormApiKey.value = false
   form.name = provider.name || ''
   form.providerType = provider.providerType || ''
   form.baseUrl = provider.baseUrl || ''
-  // 修改态故意不回填明文 Key，用户留空时后端保留原值。
-  form.apiKey = ''
+  // 修改接口当前要求 apiKey，详情接口会返回明文 Key，因此编辑态必须回填给用户确认。
+  form.apiKey = provider.apiKey || ''
+  // 用户进入修改弹窗时需要直接看到已保存的 API Key；仍保留“隐藏”按钮供用户手动遮罩。
+  showFormApiKey.value = Boolean(form.apiKey)
   form.models = normalizeModelList(provider.models)
-  form.priority = String(provider.priority ?? 100)
+  form.maxContextLength = provider.maxContextLength == null ? '' : String(provider.maxContextLength)
+  form.maxInputTokens = provider.maxInputTokens == null ? '' : String(provider.maxInputTokens)
+  form.maxOutputTokens = provider.maxOutputTokens == null ? '' : String(provider.maxOutputTokens)
   form.isEnabled = provider.isEnabled !== false
   form.configJson = provider.configJson ? JSON.stringify(provider.configJson, null, 2) : ''
 }
@@ -207,10 +214,6 @@ function toggleFormApiKey() {
 
 function providerIdOf(provider) {
   return provider?.id
-}
-
-function displayPriority(provider) {
-  return provider.priority ?? 100
 }
 
 function displayUpdatedAt(provider) {
@@ -411,6 +414,20 @@ function parseConfigJson() {
   }
 }
 
+function appendNumberField(payload, field, value) {
+  // 数值字段允许为空；只有用户填写时才提交，避免把空字符串错误转换成 0。
+  const text = String(value ?? '').trim()
+  if (!text) return { ok: true }
+
+  const numberValue = Number(text)
+  if (!Number.isFinite(numberValue) || !Number.isInteger(numberValue) || numberValue < 0) {
+    return { ok: false, message: '令牌配置必须是非负整数' }
+  }
+
+  payload[field] = numberValue
+  return { ok: true }
+}
+
 function buildPayload() {
   const parsedConfig = parseConfigJson()
   if (!parsedConfig.ok) return parsedConfig
@@ -422,9 +439,16 @@ function buildPayload() {
     isEnabled: form.isEnabled,
   }
 
-  const priority = Number(form.priority)
-  if (Number.isFinite(priority)) payload.priority = priority
-  if (!isEdit.value || form.apiKey.trim()) payload.apiKey = form.apiKey.trim()
+  payload.apiKey = form.apiKey.trim()
+  const numberFields = [
+    ['maxContextLength', form.maxContextLength],
+    ['maxInputTokens', form.maxInputTokens],
+    ['maxOutputTokens', form.maxOutputTokens],
+  ]
+  for (const [field, value] of numberFields) {
+    const result = appendNumberField(payload, field, value)
+    if (!result.ok) return result
+  }
   if (form.models.length > 0) {
     payload.models = [...form.models]
   } else if (isEdit.value) {
@@ -599,7 +623,9 @@ function goBack() {
                 <th>模型</th>
                 <th>API Key</th>
                 <th>状态</th>
-                <th>优先级</th>
+                <th>上下文</th>
+                <th>输入上限</th>
+                <th>输出上限</th>
                 <th>更新时间</th>
                 <th>操作</th>
               </tr>
@@ -641,7 +667,9 @@ function goBack() {
                     {{ provider.isEnabled === false ? '停用' : '启用' }}
                   </span>
                 </td>
-                <td data-label="优先级">{{ displayPriority(provider) }}</td>
+                <td data-label="上下文">{{ provider.maxContextLength ?? '未设置' }}</td>
+                <td data-label="输入上限">{{ provider.maxInputTokens ?? '未设置' }}</td>
+                <td data-label="输出上限">{{ provider.maxOutputTokens ?? '未设置' }}</td>
                 <td data-label="更新时间">{{ displayUpdatedAt(provider) }}</td>
                 <td data-label="操作">
                   <div class="row-actions">
@@ -694,7 +722,7 @@ function goBack() {
       @hide="onEditorHide"
     >
       <div class="editor-head">
-        <p>{{ isEdit ? '留空 API Key 会保留原密钥' : '创建时需要填写 API Key' }}</p>
+        <p>{{ isEdit ? '详情读取后会回填 API Key' : '创建时需要填写 API Key' }}</p>
         <span v-if="detailLoading">读取详情中</span>
       </div>
 
@@ -715,13 +743,13 @@ function goBack() {
         </label>
 
         <label class="line-field">
-          <span>{{ isEdit ? '新 API Key' : 'API Key' }} <em v-if="!isEdit">*</em></span>
+          <span>API Key <em>*</em></span>
           <div class="secret-input">
             <input
               v-model="form.apiKey"
               :type="showFormApiKey ? 'text' : 'password'"
               autocomplete="new-password"
-              :placeholder="isEdit ? '留空则保留原密钥' : '请输入 API Key'"
+              :placeholder="isEdit ? '正在读取详情中的 API Key' : '请输入 API Key'"
             />
             <button
               class="secret-toggle"
@@ -777,12 +805,24 @@ function goBack() {
           </div>
         </div>
 
-        <div class="split-fields">
+        <div class="token-fields">
           <label class="line-field">
-            <span>优先级</span>
-            <input v-model="form.priority" type="number" step="1" inputmode="numeric" />
+            <span>最大上下文长度</span>
+            <input v-model="form.maxContextLength" type="number" min="0" step="1" inputmode="numeric" />
           </label>
 
+          <label class="line-field">
+            <span>最大输入令牌数</span>
+            <input v-model="form.maxInputTokens" type="number" min="0" step="1" inputmode="numeric" />
+          </label>
+
+          <label class="line-field">
+            <span>最大输出令牌数</span>
+            <input v-model="form.maxOutputTokens" type="number" min="0" step="1" inputmode="numeric" />
+          </label>
+        </div>
+
+        <div class="split-fields">
           <label class="switch-field">
             <input v-model="form.isEnabled" type="checkbox" />
             <span>启用此提供商</span>
@@ -1007,7 +1047,7 @@ function goBack() {
 
 table {
   width: 100%;
-  min-width: 1180px;
+  min-width: 1320px;
   border-collapse: collapse;
 }
 
@@ -1094,7 +1134,8 @@ td strong {
 .row-actions,
 .pager,
 .form-actions,
-.split-fields {
+.split-fields,
+.token-fields {
   display: flex;
   align-items: center;
 }
@@ -1499,7 +1540,15 @@ td strong {
   align-items: end;
 }
 
-.split-fields .line-field {
+.token-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  align-items: end;
+}
+
+.split-fields .line-field,
+.token-fields .line-field {
   flex: 1 1 0;
 }
 
@@ -1718,6 +1767,10 @@ td strong {
   .form-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .token-fields {
+    grid-template-columns: 1fr;
   }
 
   .page-header h1 {

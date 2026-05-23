@@ -7,13 +7,14 @@
 //                              data: { items, page, pageSize, total }
 //   POST   /ai-providers       新增 AI 提供商
 //                              body: { name*, providerType*, baseUrl*, apiKey*,
-//                                      configJson, isEnabled, priority, models }
+//                                      configJson, isEnabled, models,
+//                                      maxContextLength, maxInputTokens, maxOutputTokens }
 //   POST   /ai-providers/models/query
 //                              查询当前连接信息可用的模型列表
 //                              body: { baseUrl*, apiKey* }
 //   GET    /ai-providers/{id}  查询单个 AI 提供商详情，详情响应会返回解密后的 apiKey
-//   PUT    /ai-providers/{id}  局部更新 AI 提供商；apiKey 不传则后端保留原值，
-//                              models 不传则后端保留原值，传 [] 则清空模型列表
+//   PUT    /ai-providers/{id}  更新 AI 提供商；当前后端要求 apiKey/baseUrl/name/providerType，
+//                              因此编辑弹窗需要先读详情并回填明文 apiKey。
 //   DELETE /ai-providers/{id}  按 ID 删除 AI 提供商
 //
 // API 层只负责路径与 HTTP 方法，不在这里处理业务码 code。

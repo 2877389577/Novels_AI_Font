@@ -57,7 +57,8 @@ export function createChapter(novelId, payload) {
   return http.post(`/novels/${novelId}/chapters`, payload)
 }
 
-// 更新章节（局部更新：传啥改啥）
+// 更新章节：后端文档写作局部更新，但当前服务端校验要求编辑时携带 chapterNo；
+// 页面侧会从详情接口回填原章节号后一起提交，避免用户改正文时触发 400 参数错误。
 export function updateChapter(novelId, chapterId, payload) {
   return http.put(`/novels/${novelId}/chapters/${chapterId}`, payload)
 }

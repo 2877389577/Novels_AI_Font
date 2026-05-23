@@ -21,7 +21,7 @@
 
   保存：
     · 新建调 createChapter（body 四字段全送）
-    · 编辑调 updateChapter（只送 title/content/wordCount，不送 chapterNo 避免无意义 409）
+    · 编辑调 updateChapter（送 chapterNo/title/content/wordCount，chapterNo 来自详情回填，不提供 UI 编辑）
     · 保存成功 → router.replace 回详情页（**replace** 避免后退栈出现 /chapter/new 死链）
 
   离开拦截：
@@ -291,8 +291,10 @@ async function onSave() {
         wordCount: wordCount.value,
       })
     } else {
-      // 编辑：故意不送 chapterNo（前端不可编辑，避免触发无意义 409）
+      // 编辑：chapterNo 虽然前端不可编辑，但后端更新校验需要该字段；
+      // 因此从详情接口已回填的 chapter 中携带原章节号，避免用户修改正文时触发参数错误。
       res = await updateChapter(props.novelId, props.chapterId, {
+        chapterNo: chapter.value?.chapterNo,
         title,
         content: form.content,
         wordCount: wordCount.value,
