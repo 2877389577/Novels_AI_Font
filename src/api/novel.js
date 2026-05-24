@@ -18,6 +18,10 @@
 //                                            这里以 path 字面实现：id 与字段一起在 body，
 //                                            若后端实际是 /novels/update/{id}，仅需改本文件一行。
 //   DELETE /novels/{id}     按 ID 软删除
+//   POST   /novels/{id}/content/optimize
+//                           AI 润色用户选中的正文片段；query: modelName
+//                           body: { selectedContent*, optimizeDirection? }
+//                           data: { approved, optimizedContent, rejectReason }
 //
 // 所有接口均依赖登录态（401 未登录），由后端 session cookie + 前端路由守卫共同保护。
 // ============================================================================
@@ -48,4 +52,16 @@ export function updateNovel(payload) {
 // 删除小说（软删）
 export function deleteNovel(id) {
   return http.delete(`/novels/${id}`)
+}
+
+// AI 润色用户选中的小说正文片段；后端只返回优化结果，不会直接修改章节正文。
+// @param {number} novelId 小说 ID
+// @param {string} modelName 当前启用 AI 提供商下选择的大模型名称
+// @param {{ selectedContent: string, optimizeDirection?: string }} payload 选中文本与可选优化方向
+export function optimizeNovelContent(novelId, modelName, payload) {
+  return http.post(`/novels/${novelId}/content/optimize`, payload, {
+    params: { modelName },
+    // AI 润色需要等待上游模型返回，耗时明显高于普通 CRUD；只给本请求放宽到 180 秒。
+    timeout: 180000,
+  })
 }
