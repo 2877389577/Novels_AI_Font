@@ -22,6 +22,7 @@ import { deleteNovel, getNovel, updateNovel } from '@/api/novel'
 import CoverUploader from '@/components/CoverUploader.vue'
 import ChapterList from '@/components/ChapterList.vue'
 import CharacterCardsPanel from '@/components/CharacterCardsPanel.vue'
+import CharacterRelationGraphPanel from '@/components/CharacterRelationGraphPanel.vue'
 import GeneratedCharacterCardsDialog from '@/components/GeneratedCharacterCardsDialog.vue'
 
 const props = defineProps({
@@ -39,6 +40,7 @@ const NOVEL_TAGS = ['玄幻', '东方玄幻']
 const DETAIL_TABS = [
   { key: 'detail', label: '小说详情' },
   { key: 'characters', label: '角色卡' },
+  { key: 'relations', label: '角色关系图' },
 ]
 
 // ───── 页面与请求状态 ─────
@@ -112,7 +114,9 @@ const introText = computed(() => novel.value?.intro?.trim() || '这本小说还�
 
 const selectedChapterLabel = computed(() => {
   if (!selectedChapter.value) return '当前章节'
-  const no = selectedChapter.value.chapterNo ? `第 ${selectedChapter.value.chapterNo} 章` : '当前章节'
+  const no = selectedChapter.value.chapterNo
+    ? `第 ${selectedChapter.value.chapterNo} 章`
+    : '当前章节'
   return selectedChapter.value.title ? `${no}《${selectedChapter.value.title}》` : no
 })
 
@@ -514,13 +518,23 @@ function selectDetailTab(tabKey) {
       </div>
 
       <div
-        v-else
+        v-else-if="activeTab === 'characters'"
         id="detail-panel-characters"
         class="characters-tab-panel"
         role="tabpanel"
         aria-labelledby="detail-tab-characters"
       >
         <CharacterCardsPanel :novel-id="novel.id" :novel-title="novel.title || ''" />
+      </div>
+
+      <div
+        v-else-if="activeTab === 'relations'"
+        id="detail-panel-relations"
+        class="relations-tab-panel"
+        role="tabpanel"
+        aria-labelledby="detail-tab-relations"
+      >
+        <CharacterRelationGraphPanel :novel-id="novel.id" :novel-title="novel.title || ''" />
       </div>
 
       <Dialog
@@ -925,7 +939,8 @@ function selectDetailTab(tabKey) {
   padding: 30px 34px 18px;
 }
 
-.characters-tab-panel {
+.characters-tab-panel,
+.relations-tab-panel {
   max-width: 1780px;
   margin: 0 auto;
 }
