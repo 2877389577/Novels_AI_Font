@@ -24,6 +24,7 @@ import ChapterList from '@/components/ChapterList.vue'
 import CharacterCardsPanel from '@/components/CharacterCardsPanel.vue'
 import CharacterRelationGraphPanel from '@/components/CharacterRelationGraphPanel.vue'
 import GeneratedCharacterCardsDialog from '@/components/GeneratedCharacterCardsDialog.vue'
+import NovelOutlinePanel from '@/components/NovelOutlinePanel.vue'
 
 const props = defineProps({
   id: { type: Number, required: true },
@@ -39,6 +40,7 @@ const NOVEL_TAGS = ['玄幻', '东方玄幻']
 // 页面一级 Tab：角色卡和小说强绑定，因此入口放在小说详情页内部。
 const DETAIL_TABS = [
   { key: 'detail', label: '小说详情' },
+  { key: 'outline', label: '大纲' },
   { key: 'characters', label: '角色卡' },
   { key: 'relations', label: '角色关系图' },
 ]
@@ -388,7 +390,7 @@ function selectDetailTab(tabKey) {
 </script>
 
 <template>
-  <main class="detail">
+  <main class="detail" :class="{ 'is-outline-tab': activeTab === 'outline' }">
     <header class="page-head">
       <div>
         <button class="back-link" type="button" @click="goBack">
@@ -515,6 +517,16 @@ function selectDetailTab(tabKey) {
             @generate-character-card="openCharacterCardGenerator"
           />
         </section>
+      </div>
+
+      <div
+        v-else-if="activeTab === 'outline'"
+        id="detail-panel-outline"
+        class="outline-tab-panel"
+        role="tabpanel"
+        aria-labelledby="detail-tab-outline"
+      >
+        <NovelOutlinePanel :novel-id="novel.id" />
       </div>
 
       <div
@@ -650,6 +662,33 @@ function selectDetailTab(tabKey) {
     linear-gradient(180deg, oklch(99% 0.006 255), oklch(96.5% 0.008 255));
   color: oklch(24% 0.035 260);
   font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+}
+
+.detail.is-outline-tab {
+  /* 大纲是整屏写作工作台：外层锁在当前视口内，滚动交给左右编辑/预览面板。 */
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.detail.is-outline-tab .page-head {
+  position: relative;
+  width: 100%;
+  max-width: none;
+  flex: 0 0 auto;
+}
+
+.detail.is-outline-tab .back-link {
+  /* 大纲页头部标题仍居中，但返回入口必须保持在左上角，避免被整屏 flex 布局居中。 */
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.detail.is-outline-tab .page-head > div {
+  width: 100%;
+  text-align: center;
 }
 
 .page-head {
@@ -943,6 +982,15 @@ function selectDetailTab(tabKey) {
 .relations-tab-panel {
   max-width: 1780px;
   margin: 0 auto;
+}
+
+.outline-tab-panel {
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  margin: 0;
 }
 
 .state-card {
@@ -1428,6 +1476,12 @@ function selectDetailTab(tabKey) {
 @media (max-width: 820px) {
   .detail {
     padding: 24px 18px 32px;
+  }
+
+  .detail.is-outline-tab {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
   }
 
   .page-head {

@@ -18,6 +18,10 @@
 //                                            这里以 path 字面实现：id 与字段一起在 body，
 //                                            若后端实际是 /novels/update/{id}，仅需改本文件一行。
 //   DELETE /novels/{id}     按 ID 软删除
+//   GET    /novels/{id}/outline
+//                           查询小说大纲，只返回 data.novelOutline
+//   POST   /novels/{id}/outline
+//                           保存小说大纲；body: { novelOutline }，空字符串表示清空
 //   POST   /novels/{id}/content/optimize
 //                           AI 润色用户选中的正文片段；query: modelName
 //                           body: { selectedContent*, optimizeDirection? }
@@ -52,6 +56,18 @@ export function updateNovel(payload) {
 // 删除小说（软删）
 export function deleteNovel(id) {
   return http.delete(`/novels/${id}`)
+}
+
+// 查询小说大纲；后端只返回 novelOutline 字段，避免把小说详情其他字段混入大纲编辑流程。
+export function getNovelOutline(id) {
+  return http.get(`/novels/${id}/outline`)
+}
+
+// 保存小说大纲原文；Markdown 只在前端预览渲染，入库始终提交用户编辑的原始文本。
+// @param {number} id 小说 ID
+// @param {string} novelOutline Markdown 原文；空字符串表示清空大纲
+export function saveNovelOutline(id, novelOutline) {
+  return http.post(`/novels/${id}/outline`, { novelOutline })
 }
 
 // AI 润色用户选中的小说正文片段；后端只返回优化结果，不会直接修改章节正文。
