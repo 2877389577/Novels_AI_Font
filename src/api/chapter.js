@@ -15,6 +15,11 @@
 //          查询单章详情（含 content 大文本）
 //          data:  { id, novelId, chapterNo, title, content, wordCount, createdAt, updatedAt }
 //
+//   GET    /novels/{id}/chapters/{chapterId}/plot-analysis
+//          查询已经持久化的 AI 章节剧情总结；该总结由后端在章节保存或修改后异步生成
+//          data:  { summary, characters_involved, key_events, event_analysis,
+//                   foreshadowing, unresolved_threads, relationship_changes, ...时间字段 }
+//
 //   POST   /novels/{id}/chapters
 //          新增章节
 //          body 四字段全部必填: { chapterNo, title, content, wordCount }
@@ -50,6 +55,11 @@ export function getNextChapterNo(novelId) {
 // 查询单个章节详情（含 content）
 export function getChapter(novelId, chapterId) {
   return http.get(`/novels/${novelId}/chapters/${chapterId}`)
+}
+
+// 查询指定章节的 AI 剧情总结；如果后端还没有生成成功，调用页按业务码展示“暂未生成”。
+export function getChapterPlotAnalysis(novelId, chapterId) {
+  return http.get(`/novels/${novelId}/chapters/${chapterId}/plot-analysis`)
 }
 
 // 新建章节：chapterNo / title / content / wordCount 四字段全部必填

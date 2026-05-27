@@ -278,6 +278,16 @@ function toEditChapter(chapter) {
   })
 }
 
+function toChapterPlotAnalysis(payload) {
+  const novelId = Number(payload?.novelId || payload?.chapter?.novelId || novel.value?.id || props.id)
+  const chapterId = Number(payload?.chapterId || payload?.chapter?.id)
+  if (!Number.isFinite(novelId) || !Number.isFinite(chapterId)) return
+  router.push({
+    name: 'chapter-plot-analysis',
+    params: { novelId, chapterId },
+  })
+}
+
 function normalizeModelList(value) {
   // 模型列表来自后端保存值，仍做去重和空值过滤，避免下拉框出现不可选择的空项。
   const source = Array.isArray(value) ? value : []
@@ -515,6 +525,7 @@ function selectDetailTab(tabKey) {
             :novel-id="novel.id"
             @edit="toEditChapter"
             @generate-character-card="openCharacterCardGenerator"
+            @plot-analysis="toChapterPlotAnalysis"
           />
         </section>
       </div>

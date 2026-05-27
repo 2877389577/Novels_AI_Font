@@ -23,8 +23,8 @@ const props = defineProps({
   novelId: { type: Number, required: true },
 })
 
-// 父组件决定章节点击后的路由行为；生成角色卡也由父页管理弹窗和接口状态。
-const emit = defineEmits(['edit', 'generate-character-card'])
+// 父组件决定章节点击后的路由行为；生成角色卡和剧情推理都由父页统一接入业务页面。
+const emit = defineEmits(['edit', 'generate-character-card', 'plot-analysis'])
 
 const confirm = useConfirm()
 const toast = useToast()
@@ -111,6 +111,15 @@ function onGenerateCharacterCard(chapter) {
   emit('generate-character-card', chapter)
 }
 
+function onPlotAnalysis(chapter) {
+  emit('plot-analysis', {
+    // 剧情总结接口同时需要小说 ID 和章节 ID；优先使用章节列表项自带的 novelId，兜底用当前列表所属小说。
+    novelId: Number(chapter?.novelId || props.novelId),
+    chapterId: Number(chapter?.id),
+    chapter,
+  })
+}
+
 function onRowDelete(chapter) {
   confirm.require({
     header: '确认删除',
@@ -185,6 +194,7 @@ defineExpose({
           @click="onRowClick"
           @delete="onRowDelete"
           @generate-character-card="onGenerateCharacterCard"
+          @plot-analysis="onPlotAnalysis"
         />
       </div>
     </div>
@@ -229,7 +239,7 @@ defineExpose({
 
 .table-head {
   display: grid;
-  grid-template-columns: 160px minmax(220px, 1fr) 240px 196px;
+  grid-template-columns: 160px minmax(220px, 1fr) 240px 304px;
   align-items: center;
   min-height: 54px;
   padding: 0 28px;

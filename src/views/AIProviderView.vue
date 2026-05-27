@@ -58,6 +58,7 @@ const form = reactive({
   providerType: '',
   baseUrl: '',
   apiKey: '',
+  defaultModel: '',
   models: [],
   maxContextLength: '',
   maxInputTokens: '',
@@ -69,6 +70,7 @@ const form = reactive({
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 const isEdit = computed(() => mode.value === 'edit')
 const formTitle = computed(() => (isEdit.value ? '修改提供商' : '新增提供商'))
+const defaultModelOptions = computed(() => normalizeModelList(form.models))
 const submitLabel = computed(() => {
   if (saving.value) return isEdit.value ? '保存中' : '创建中'
   return isEdit.value ? '保存修改' : '创建提供商'
@@ -76,7 +78,7 @@ const submitLabel = computed(() => {
 const canSubmit = computed(() => {
   if (saving.value || detailLoading.value) return false
   if (!form.name.trim() || !form.providerType.trim() || !form.baseUrl.trim()) return false
-  return Boolean(form.apiKey.trim())
+  return Boolean(form.apiKey.trim() && defaultModelOptions.value.includes(form.defaultModel))
 })
 
 // 页码最多展示 5 个，避免分页控件在小屏下过长。
@@ -134,6 +136,10 @@ function onModelKeydown(event) {
 
 function removeModel(model) {
   form.models = form.models.filter((item) => item !== model)
+  if (form.defaultModel === model) {
+    // 默认模型只能来自当前支持模型列表；移除对应模型时同步清空，避免提交过期值。
+    form.defaultModel = ''
+  }
 }
 
 function pickCandidateModel(model) {
@@ -166,6 +172,7 @@ function resetForm() {
   form.providerType = ''
   form.baseUrl = ''
   form.apiKey = ''
+  form.defaultModel = ''
   form.models = []
   form.maxContextLength = ''
   form.maxInputTokens = ''
@@ -202,6 +209,8 @@ function syncForm(provider = {}) {
   // 用户进入修改弹窗时需要直接看到已保存的 API Key；仍保留“隐藏”按钮供用户手动遮罩。
   showFormApiKey.value = Boolean(form.apiKey)
   form.models = normalizeModelList(provider.models)
+  // 默认模型必须从已保存的支持模型中选择；若历史数据不一致，要求用户重新选择。
+  form.defaultModel = form.models.includes(provider.defaultModel) ? provider.defaultModel : ''
   form.maxContextLength = provider.maxContextLength == null ? '' : String(provider.maxContextLength)
   form.maxInputTokens = provider.maxInputTokens == null ? '' : String(provider.maxInputTokens)
   form.maxOutputTokens = provider.maxOutputTokens == null ? '' : String(provider.maxOutputTokens)
@@ -433,11 +442,25 @@ function appendNumberField(payload, field, value) {
 function buildPayload() {
   const parsedConfig = parseConfigJson()
   if (!parsedConfig.ok) return parsedConfig
+  const models = defaultModelOptions.value
+  const defaultModel = form.defaultModel.trim()
+
+  if (models.length === 0) {
+    return { ok: false, message: '请先添加或查询模型列表，再选择默认模型' }
+  }
+  if (!defaultModel) {
+    return { ok: false, message: '请选择默认模型' }
+  }
+  if (!models.includes(defaultModel)) {
+    return { ok: false, message: '默认模型必须从模型列表中选择' }
+  }
 
   const payload = {
     name: form.name.trim(),
     providerType: form.providerType.trim(),
     baseUrl: form.baseUrl.trim(),
+    // 默认模型是后端自动 AI 任务的必填入口，必须来自当前支持模型列表。
+    defaultModel,
     isEnabled: form.isEnabled,
   }
 
@@ -451,12 +474,7 @@ function buildPayload() {
     const result = appendNumberField(payload, field, value)
     if (!result.ok) return result
   }
-  if (form.models.length > 0) {
-    payload.models = [...form.models]
-  } else if (isEdit.value) {
-    // 修改态传空数组用于明确清空旧模型；新增态不传空数组，沿用后端默认处理。
-    payload.models = []
-  }
+  payload.models = [...models]
   if (parsedConfig.value !== undefined) {
     payload.configJson = parsedConfig.value
   } else if (isEdit.value) {
@@ -849,6 +867,25 @@ function goBack() {
             </button>
           </div>
         </div>
+
+        <label class="line-field">
+          <span>默认模型 <em>*</em></span>
+          <select v-model="form.defaultModel" :disabled="defaultModelOptions.length === 0">
+            <option value="" disabled>
+              {{ defaultModelOptions.length === 0 ? '请先添加模型列表' : '请选择默认模型' }}
+            </option>
+            <option v-for="model in defaultModelOptions" :key="model" :value="model">
+              {{ model }}
+            </option>
+          </select>
+          <small class="field-hint">
+            {{
+              defaultModelOptions.length === 0
+                ? '请先在上方模型列表中添加或查询模型，再选择默认模型。'
+                : '默认模型只能从当前模型列表中选择。'
+            }}
+          </small>
+        </label>
 
         <div class="token-fields">
           <label class="line-field">
@@ -1369,7 +1406,8 @@ td strong {
 
 /* 表单控件用下划线和浅底表达可输入状态，避免厚重输入框边界。 */
 .line-field input,
-.line-field textarea {
+.line-field textarea,
+.line-field select {
   width: 100%;
   border: 0;
   border-bottom: 1px solid oklch(82% 0.018 250);
@@ -1389,6 +1427,17 @@ td strong {
   padding: 0 2px;
 }
 
+.line-field select {
+  min-height: 46px;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+.line-field select:disabled {
+  cursor: not-allowed;
+  opacity: 0.64;
+}
+
 .line-field textarea {
   min-height: 148px;
   padding: 12px 2px;
@@ -1402,15 +1451,23 @@ td strong {
 }
 
 .line-field input:hover,
-.line-field textarea:hover {
+.line-field textarea:hover,
+.line-field select:hover:not(:disabled) {
   border-bottom-color: oklch(68% 0.075 250);
 }
 
 .line-field input:focus,
-.line-field textarea:focus {
+.line-field textarea:focus,
+.line-field select:focus {
   background: oklch(99.2% 0.003 250);
   border-bottom-color: oklch(48% 0.16 252);
   box-shadow: 0 8px 18px oklch(50% 0.08 252 / 0.08);
+}
+
+.field-hint {
+  color: oklch(54% 0.03 260);
+  font-size: 0.76rem;
+  line-height: 1.6;
 }
 
 .secret-input {
@@ -1677,6 +1734,7 @@ td strong {
 .model-candidates button:focus-visible,
 .line-field input:focus-visible,
 .line-field textarea:focus-visible,
+.line-field select:focus-visible,
 .model-input-box:focus-within,
 .switch-field input:focus-visible {
   outline: 3px solid oklch(76% 0.14 250 / 0.55);

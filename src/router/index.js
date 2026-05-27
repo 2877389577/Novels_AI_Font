@@ -75,6 +75,17 @@ const router = createRouter({
       }),
     },
     {
+      // 章节剧情推理页：展示后端已经持久化的 AI 剧情总结，入口来自小说详情页章节列表。
+      path: '/novel/:novelId(\\d+)/chapter/:chapterId(\\d+)/plot-analysis',
+      name: 'chapter-plot-analysis',
+      component: () => import('@/views/ChapterPlotAnalysisView.vue'),
+      meta: { title: '剧情推理 · AI 小说系统' },
+      props: (route) => ({
+        novelId: Number(route.params.novelId),
+        chapterId: Number(route.params.chapterId),
+      }),
+    },
+    {
       // 兜底路由：任意未知路径回到书架（书架本身受守卫保护）
       path: '/:pathMatch(.*)*',
       redirect: '/shelf',

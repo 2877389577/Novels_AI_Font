@@ -2,7 +2,7 @@
   ChapterRow.vue：章节表格单行
   ----------------------------------------------------------------------------
   组件只负责展示和派发事件，不持有业务状态、不调用接口。
-  视觉上以“章节号 / 章节标题 / 创建时间”为主体，删除按钮放在行尾弱化展示。
+  视觉上以“章节号 / 章节标题 / 创建时间”为主体，生成类操作和删除按钮放在行尾。
 -->
 
 <script setup>
@@ -14,7 +14,7 @@ const props = defineProps({
   chapter: { type: Object, required: true },
 })
 
-const emit = defineEmits(['click', 'delete', 'generate-character-card'])
+const emit = defineEmits(['click', 'delete', 'generate-character-card', 'plot-analysis'])
 
 function onClickRow() {
   emit('click', props.chapter)
@@ -24,6 +24,12 @@ function onClickRow() {
 function onClickGenerate(e) {
   e.stopPropagation()
   emit('generate-character-card', props.chapter)
+}
+
+// 剧情推理是独立页面入口，同样必须阻止行点击，避免路由同时跳到章节编辑页。
+function onClickPlotAnalysis(e) {
+  e.stopPropagation()
+  emit('plot-analysis', props.chapter)
 }
 
 // 删除按钮阻止冒泡，避免用户点删除时同时进入章节编辑页。
@@ -50,6 +56,7 @@ function onClickDelete(e) {
       formatDateTime(chapter.createdAt)
     }}</span>
     <div class="row-actions" role="cell" data-label="操作">
+      <button class="analysis-row" type="button" @click="onClickPlotAnalysis">剧情推理</button>
       <button class="generate-row" type="button" @click="onClickGenerate">生成角色卡</button>
       <button
         class="delete-row"
@@ -72,7 +79,7 @@ function onClickDelete(e) {
 <style scoped>
 .row {
   display: grid;
-  grid-template-columns: 160px minmax(220px, 1fr) 240px 196px;
+  grid-template-columns: 160px minmax(220px, 1fr) 240px 304px;
   align-items: center;
   min-height: 58px;
   padding: 0 28px;
@@ -129,6 +136,7 @@ function onClickDelete(e) {
   gap: 8px;
 }
 
+.analysis-row,
 .generate-row,
 .delete-row {
   height: 36px;
@@ -150,6 +158,7 @@ function onClickDelete(e) {
     transform 0.18s ease;
 }
 
+.analysis-row,
 .generate-row {
   min-width: 104px;
   padding: 0 10px;
@@ -158,12 +167,19 @@ function onClickDelete(e) {
   white-space: nowrap;
 }
 
+.analysis-row {
+  min-width: 92px;
+  color: oklch(44% 0.13 190);
+}
+
 .delete-row {
   width: 36px;
   color: oklch(55% 0.22 25);
   opacity: 0.68;
 }
 
+.analysis-row:hover,
+.analysis-row:focus-visible,
 .generate-row:hover,
 .generate-row:focus-visible {
   border-color: oklch(70% 0.08 255);
@@ -253,6 +269,12 @@ function onClickDelete(e) {
   }
 
   .generate-row {
+    min-width: 88px;
+    height: 34px;
+    font-size: 0.78rem;
+  }
+
+  .analysis-row {
     min-width: 88px;
     height: 34px;
     font-size: 0.78rem;

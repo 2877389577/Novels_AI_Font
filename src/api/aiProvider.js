@@ -6,7 +6,7 @@
 //                              query: page, pageSize（默认 1 / 10，pageSize 上限 100）
 //                              data: { items, page, pageSize, total }
 //   POST   /ai-providers       新增 AI 提供商
-//                              body: { name*, providerType*, baseUrl*, apiKey*,
+//                              body: { name*, providerType*, baseUrl*, apiKey*, defaultModel*,
 //                                      configJson, isEnabled, models,
 //                                      maxContextLength, maxInputTokens, maxOutputTokens }
 //   POST   /ai-providers/enable
@@ -19,7 +19,7 @@
 //                              查询当前连接信息可用的模型列表
 //                              body: { baseUrl*, apiKey* }
 //   GET    /ai-providers/{id}  查询单个 AI 提供商详情，详情响应会返回解密后的 apiKey
-//   PUT    /ai-providers/{id}  更新 AI 提供商；当前后端要求 apiKey/baseUrl/name/providerType，
+//   PUT    /ai-providers/{id}  更新 AI 提供商；当前后端要求 apiKey/baseUrl/name/providerType/defaultModel，
 //                              因此编辑弹窗需要先读详情并回填明文 apiKey。
 //   DELETE /ai-providers/{id}  按 ID 删除 AI 提供商
 //
@@ -40,7 +40,7 @@ export function getAIProvider(id) {
   return http.get(`/ai-providers/${id}`)
 }
 
-// 新增 AI 提供商；name/providerType/baseUrl/apiKey 为后端必填字段。
+// 新增 AI 提供商；name/providerType/baseUrl/apiKey/defaultModel 为后端必填字段。
 export function createAIProvider(payload) {
   return http.post('/ai-providers', payload)
 }
@@ -60,7 +60,7 @@ export function queryAIProviderModels(payload) {
   return http.post('/ai-providers/models/query', payload)
 }
 
-// 更新 AI 提供商；后端支持局部更新，apiKey 仅在用户显式填写新值时传入。
+// 更新 AI 提供商；后端当前按全量字段校验，页面会先读详情并回填 apiKey/defaultModel 后一起提交。
 export function updateAIProvider(id, payload) {
   return http.put(`/ai-providers/${id}`, payload)
 }
