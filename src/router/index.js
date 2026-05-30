@@ -41,6 +41,21 @@ const router = createRouter({
       meta: { title: 'AI 设置 · AI 小说系统' },
     },
     {
+      // 生图 AI 设置：管理图片生成专用 AI 提供商，和文本 AI 提供商独立配置。
+      path: '/image-ai-providers',
+      name: 'image-ai-providers',
+      component: () => import('@/views/ImageAIProviderView.vue'),
+      meta: { title: '生图AI设置 · AI 小说系统' },
+    },
+    {
+      // AI 自动任务配置：管理保存 / 修改内容后会自动触发的 AI 后台任务开关，
+      // 入口放在书架右上角账号菜单的「配置」项。
+      path: '/ai-task-configs',
+      name: 'ai-task-configs',
+      component: () => import('@/views/AITaskConfigView.vue'),
+      meta: { title: 'AI 自动任务配置 · AI 小说系统' },
+    },
+    {
       // 小说详情页：编辑/删除单本小说
       path: '/novel/:id(\\d+)',
       name: 'novel-detail',

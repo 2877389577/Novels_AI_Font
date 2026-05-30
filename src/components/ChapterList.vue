@@ -14,7 +14,6 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
-import Button from 'primevue/button'
 import { deleteChapter, listChapters } from '@/api/chapter'
 import ChapterRow from './ChapterRow.vue'
 
@@ -173,7 +172,7 @@ defineExpose({
 
     <div v-else-if="loadError" class="state error">
       <span>{{ loadError }}</span>
-      <Button label="重试" text size="small" @click="fetchPage" />
+      <button class="retry-button" type="button" @click="fetchPage">重试</button>
     </div>
 
     <div v-else-if="total === 0" class="state empty">还没有章节，点上方「添加章节」开始写作。</div>
@@ -228,6 +227,26 @@ defineExpose({
 
 .state.empty {
   color: oklch(50% 0.035 260);
+}
+
+.retry-button {
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid oklch(82% 0.026 255);
+  border-radius: 8px;
+  background: oklch(99.2% 0.004 255);
+  color: oklch(48% 0.16 255);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.retry-button:hover,
+.retry-button:focus-visible {
+  border-color: oklch(70% 0.08 255);
+  background: oklch(95% 0.022 255);
+  outline: none;
 }
 
 .chapter-table {

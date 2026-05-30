@@ -217,6 +217,16 @@ function toAISettings() {
   router.push({ name: 'ai-providers' })
 }
 
+function toImageAISettings() {
+  closeAccountMenu()
+  router.push({ name: 'image-ai-providers' })
+}
+
+function toAITaskConfigs() {
+  closeAccountMenu()
+  router.push({ name: 'ai-task-configs' })
+}
+
 function onLogout() {
   closeAccountMenu()
   auth.logout()
@@ -280,7 +290,40 @@ function onLogout() {
               </svg>
               AI 设置
             </button>
-            <button class="account-menu-item danger" type="button" role="menuitem" @click="onLogout">
+            <button
+              class="account-menu-item"
+              type="button"
+              role="menuitem"
+              @click="toImageAISettings"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="4" y="5" width="16" height="14" rx="2.5" />
+                <path d="m7 16 3.2-3.2a1.4 1.4 0 0 1 2 0L15 15.6" />
+                <path d="m14 14 1.2-1.2a1.4 1.4 0 0 1 2 0L20 15.6" />
+                <circle cx="9" cy="9" r="1.2" />
+              </svg>
+              生图AI
+            </button>
+            <button
+              class="account-menu-item"
+              type="button"
+              role="menuitem"
+              @click="toAITaskConfigs"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 8h9M17 8h3" />
+                <path d="M4 16h3M11 16h9" />
+                <circle cx="15" cy="8" r="2.4" />
+                <circle cx="9" cy="16" r="2.4" />
+              </svg>
+              配置
+            </button>
+            <button
+              class="account-menu-item danger"
+              type="button"
+              role="menuitem"
+              @click="onLogout"
+            >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M10 17l5-5-5-5" />
                 <path d="M15 12H4" />

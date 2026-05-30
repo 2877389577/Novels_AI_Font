@@ -1,10 +1,10 @@
 <!--
-  AIProviderView.vue：AI 提供商设置页
+  ImageAIProviderView.vue：生图 AI 提供商设置页
   ----------------------------------------------------------------------------
   设计目标：
-  1. 承载 AI 提供商的分页查询、新增、修改、删除，入口来自书架右上角账号菜单。
-  2. API Key 由后端详情接口明文返回，页面必须默认遮罩，仅在用户主动点击后短暂展示。
-  3. 列表保持为页面主体，新增 / 修改通过弹窗承载，避免表单常驻页面造成视觉压迫。
+  1. 管理图片生成专用 AI 提供商，和文本 AI 提供商分离。
+  2. API Key 只在详情接口返回，页面默认遮罩，用户主动点击后才展示。
+  3. 新增 / 修改仍使用弹窗承载，保持和普通 AI 提供商页一致的设置体验。
 -->
 
 <script setup>
@@ -14,14 +14,14 @@ import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
 import Dialog from 'primevue/dialog'
 import {
-  createAIProvider,
-  deleteAIProvider,
-  enableAIProvider,
-  getAIProvider,
-  listAIProviders,
-  queryAIProviderModels,
-  updateAIProvider,
-} from '@/api/aiProvider'
+  createImageAIProvider,
+  deleteImageAIProvider,
+  enableImageAIProvider,
+  getImageAIProvider,
+  listImageAIProviders,
+  updateImageAIProvider,
+} from '@/api/imageAIProvider'
+import { queryAIProviderModels } from '@/api/aiProvider'
 import { formatDateTime } from '@/utils/datetime'
 
 const router = useRouter()
@@ -48,7 +48,7 @@ const modelInput = ref('')
 const modelCandidates = ref([])
 const modelQuerying = ref(false)
 
-// API Key 独立缓存：列表接口通常不返回明文，用户点击显示时再调详情接口补齐。
+// API Key 明文只在详情接口中返回，列表页统一走缓存和显隐集合控制。
 const apiKeyCache = reactive({})
 const visibleKeyIds = ref(new Set())
 const keyLoadingId = ref(null)
@@ -59,18 +59,14 @@ const form = reactive({
   baseUrl: '',
   apiKey: '',
   defaultModel: '',
-  defaultImageModel: '',
   models: [],
-  maxContextLength: '',
-  maxInputTokens: '',
-  maxOutputTokens: '',
   isEnabled: false,
   configJson: '',
 })
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 const isEdit = computed(() => mode.value === 'edit')
-const formTitle = computed(() => (isEdit.value ? '修改提供商' : '新增提供商'))
+const formTitle = computed(() => (isEdit.value ? '修改生图 AI' : '新增生图 AI'))
 const defaultModelOptions = computed(() => normalizeModelList(form.models))
 const submitLabel = computed(() => {
   if (saving.value) return isEdit.value ? '保存中' : '创建中'
@@ -82,13 +78,11 @@ const canSubmit = computed(() => {
   return Boolean(form.apiKey.trim() && defaultModelOptions.value.includes(form.defaultModel))
 })
 
-// 页码最多展示 5 个，避免分页控件在小屏下过长。
+// 页码最多展示 5 个，避免分页控件在窄屏下挤压。
 const pageNumbers = computed(() => {
   const maxButtons = 5
   const pages = totalPages.value
-  if (pages <= maxButtons) {
-    return Array.from({ length: pages }, (_, i) => i + 1)
-  }
+  if (pages <= maxButtons) return Array.from({ length: pages }, (_, i) => i + 1)
 
   let start = Math.max(1, page.value - 2)
   let end = Math.min(pages, start + maxButtons - 1)
@@ -97,7 +91,7 @@ const pageNumbers = computed(() => {
 })
 
 function normalizeModelList(value) {
-  // 后端契约是 string[]，这里仍兼容字符串，方便用户粘贴“a,b，c”后统一归一化。
+  // 后端契约是 string[]；这里兼容逗号分隔字符串，便于用户从厂商文档中粘贴。
   const sourceItems = Array.isArray(value) ? value : [value]
   const rawItems = sourceItems.flatMap((item) => String(item || '').split(/[,，]/))
   const seen = new Set()
@@ -114,8 +108,7 @@ function normalizeModelList(value) {
 }
 
 function addModels(value) {
-  const merged = normalizeModelList([...form.models, ...normalizeModelList(value)])
-  form.models = merged
+  form.models = normalizeModelList([...form.models, ...normalizeModelList(value)])
 }
 
 function commitModelInput() {
@@ -125,7 +118,6 @@ function commitModelInput() {
 }
 
 function onModelInput(event) {
-  // 输入或粘贴中英文逗号时立即拆成标签；普通文字继续留在输入框里等待分隔。
   if (/[,，]/.test(event.target.value)) commitModelInput()
 }
 
@@ -138,12 +130,8 @@ function onModelKeydown(event) {
 function removeModel(model) {
   form.models = form.models.filter((item) => item !== model)
   if (form.defaultModel === model) {
-    // 默认模型只能来自当前支持模型列表；移除对应模型时同步清空，避免提交过期值。
+    // 默认生图模型必须来自当前模型列表，移除对应模型时同步清空旧选择。
     form.defaultModel = ''
-  }
-  if (form.defaultImageModel === model) {
-    // 默认生图模型同样只允许从支持模型列表中选择，模型被移除时必须清空旧选择。
-    form.defaultImageModel = ''
   }
 }
 
@@ -178,11 +166,7 @@ function resetForm() {
   form.baseUrl = ''
   form.apiKey = ''
   form.defaultModel = ''
-  form.defaultImageModel = ''
   form.models = []
-  form.maxContextLength = ''
-  form.maxInputTokens = ''
-  form.maxOutputTokens = ''
   form.isEnabled = false
   form.configJson = ''
 }
@@ -198,7 +182,6 @@ function closeEditor() {
 }
 
 function onEditorHide() {
-  // 弹窗关闭后清理草稿和选中态；保存流程会先刷新列表，再回到干净的新建态。
   if (saving.value) return
   detailLoading.value = false
   resetForm()
@@ -210,27 +193,65 @@ function syncForm(provider = {}) {
   form.name = provider.name || ''
   form.providerType = provider.providerType || ''
   form.baseUrl = provider.baseUrl || ''
-  // 修改接口当前要求 apiKey，详情接口会返回明文 Key，因此编辑态必须回填给用户确认。
   form.apiKey = provider.apiKey || ''
-  // 用户进入修改弹窗时需要直接看到已保存的 API Key；仍保留“隐藏”按钮供用户手动遮罩。
   showFormApiKey.value = Boolean(form.apiKey)
   form.models = normalizeModelList(provider.models)
-  // 默认模型必须从已保存的支持模型中选择；若历史数据不一致，要求用户重新选择。
+  // 默认生图模型必须从模型列表中选择；历史数据不一致时要求用户重新选择。
   form.defaultModel = form.models.includes(provider.defaultModel) ? provider.defaultModel : ''
-  // 默认生图模型是可选能力；历史值若不在模型列表中则清空，避免提交不可选模型。
-  form.defaultImageModel = form.models.includes(provider.defaultImageModel)
-    ? provider.defaultImageModel
-    : ''
-  form.maxContextLength = provider.maxContextLength == null ? '' : String(provider.maxContextLength)
-  form.maxInputTokens = provider.maxInputTokens == null ? '' : String(provider.maxInputTokens)
-  form.maxOutputTokens = provider.maxOutputTokens == null ? '' : String(provider.maxOutputTokens)
   form.isEnabled = provider.isEnabled !== false
   form.configJson = provider.configJson ? JSON.stringify(provider.configJson, null, 2) : ''
 }
 
 function toggleFormApiKey() {
-  // 弹窗内 API Key 也默认隐藏；用户主动点击后才切换成明文，避免旁观泄露。
   showFormApiKey.value = !showFormApiKey.value
+}
+
+async function queryModels() {
+  if (modelQuerying.value || detailLoading.value) return
+  commitModelInput()
+
+  const baseUrl = form.baseUrl.trim()
+  const cachedApiKey = activeProviderId.value ? apiKeyCache[activeProviderId.value] || '' : ''
+  const apiKey = form.apiKey.trim() || cachedApiKey
+
+  if (!baseUrl) {
+    toast.add({ severity: 'warn', summary: '请先填写 Base URL', life: 2400 })
+    return
+  }
+  if (!apiKey) {
+    toast.add({ severity: 'warn', summary: '请先填写 API Key', life: 2400 })
+    return
+  }
+
+  modelQuerying.value = true
+  try {
+    // 生图 AI 与普通 AI 共用模型查询接口；该请求只探测上游模型，不写入数据库。
+    const res = await queryAIProviderModels({ baseUrl, apiKey })
+    if (res?.code === 0) {
+      modelCandidates.value = normalizeModelList(res.data?.models)
+      toast.add({
+        severity: modelCandidates.value.length > 0 ? 'success' : 'info',
+        summary: modelCandidates.value.length > 0 ? '模型已读取' : '未查询到模型',
+        life: 2200,
+      })
+    } else {
+      toast.add({
+        severity: 'error',
+        summary: '模型查询失败',
+        detail: res?.msg || '请检查 Base URL 和 API Key',
+        life: 3000,
+      })
+    }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: '网络错误',
+      detail: e?.message || '请稍后重试',
+      life: 3000,
+    })
+  } finally {
+    modelQuerying.value = false
+  }
 }
 
 function providerIdOf(provider) {
@@ -242,7 +263,6 @@ function displayUpdatedAt(provider) {
 }
 
 function maskApiKey(value = '') {
-  // 用黑色小圆点表达“这里有密钥但默认隐藏”，长度固定，避免泄露真实长度。
   if (!value) return '••••••••••••'
   return '•'.repeat(Math.min(Math.max(value.length, 12), 24))
 }
@@ -269,18 +289,18 @@ async function fetchProviders(targetPage = page.value) {
   loading.value = true
   loadError.value = ''
   try {
-    const res = await listAIProviders({ page: targetPage, pageSize })
+    const res = await listImageAIProviders({ page: targetPage, pageSize })
     if (res?.code === 0) {
       providers.value = res.data?.items || []
       total.value = res.data?.total || 0
       page.value = res.data?.page || targetPage
 
-      // 如果后端未来在列表里也返回 apiKey，仍统一写入缓存，显隐逻辑不分叉。
+      // 如果后端未来列表也返回 apiKey，仍统一写入缓存，显隐逻辑不分叉。
       providers.value.forEach((provider) => {
         if (provider?.id && provider.apiKey) apiKeyCache[provider.id] = provider.apiKey
       })
     } else {
-      loadError.value = res?.msg || 'AI 提供商加载失败'
+      loadError.value = res?.msg || '生图 AI 提供商加载失败'
       toast.add({
         severity: 'error',
         summary: '加载失败',
@@ -289,7 +309,7 @@ async function fetchProviders(targetPage = page.value) {
       })
     }
   } catch (e) {
-    loadError.value = e?.message || 'AI 提供商加载失败'
+    loadError.value = e?.message || '生图 AI 提供商加载失败'
     toast.add({
       severity: 'error',
       summary: '网络错误',
@@ -315,7 +335,7 @@ async function toggleApiKey(provider) {
   if (!apiKeyCache[id] && !provider.apiKey) {
     keyLoadingId.value = id
     try {
-      const res = await getAIProvider(id)
+      const res = await getImageAIProvider(id)
       if (res?.code === 0 && res.data) {
         apiKeyCache[id] = res.data.apiKey || ''
       } else {
@@ -350,7 +370,7 @@ async function openEdit(provider) {
   syncForm(provider)
   showEditor.value = true
   try {
-    const res = await getAIProvider(id)
+    const res = await getImageAIProvider(id)
     if (res?.code === 0 && res.data) {
       apiKeyCache[id] = res.data.apiKey || ''
       syncForm(res.data)
@@ -374,53 +394,6 @@ async function openEdit(provider) {
   }
 }
 
-async function queryModels() {
-  if (modelQuerying.value || detailLoading.value) return
-  commitModelInput()
-
-  const baseUrl = form.baseUrl.trim()
-  const cachedApiKey = activeProviderId.value ? apiKeyCache[activeProviderId.value] || '' : ''
-  const apiKey = form.apiKey.trim() || cachedApiKey
-
-  if (!baseUrl) {
-    toast.add({ severity: 'warn', summary: '请先填写 Base URL', life: 2400 })
-    return
-  }
-  if (!apiKey) {
-    toast.add({ severity: 'warn', summary: '请先填写 API Key', life: 2400 })
-    return
-  }
-
-  modelQuerying.value = true
-  try {
-    const res = await queryAIProviderModels({ baseUrl, apiKey })
-    if (res?.code === 0) {
-      modelCandidates.value = normalizeModelList(res.data?.models)
-      toast.add({
-        severity: modelCandidates.value.length > 0 ? 'success' : 'info',
-        summary: modelCandidates.value.length > 0 ? '模型已读取' : '未查询到模型',
-        life: 2200,
-      })
-    } else {
-      toast.add({
-        severity: 'error',
-        summary: '模型查询失败',
-        detail: res?.msg || '请检查 Base URL 和 API Key',
-        life: 3000,
-      })
-    }
-  } catch (e) {
-    toast.add({
-      severity: 'error',
-      summary: '网络错误',
-      detail: e?.message || '请稍后重试',
-      life: 3000,
-    })
-  } finally {
-    modelQuerying.value = false
-  }
-}
-
 function parseConfigJson() {
   const text = form.configJson.trim()
   if (!text) return { ok: true, value: undefined }
@@ -435,37 +408,19 @@ function parseConfigJson() {
   }
 }
 
-function appendNumberField(payload, field, value) {
-  // 数值字段允许为空；只有用户填写时才提交，避免把空字符串错误转换成 0。
-  const text = String(value ?? '').trim()
-  if (!text) return { ok: true }
-
-  const numberValue = Number(text)
-  if (!Number.isFinite(numberValue) || !Number.isInteger(numberValue) || numberValue < 0) {
-    return { ok: false, message: '令牌配置必须是非负整数' }
-  }
-
-  payload[field] = numberValue
-  return { ok: true }
-}
-
 function buildPayload() {
   const parsedConfig = parseConfigJson()
   if (!parsedConfig.ok) return parsedConfig
   const models = defaultModelOptions.value
   const defaultModel = form.defaultModel.trim()
-  const defaultImageModel = form.defaultImageModel.trim()
 
   if (models.length === 0) {
-    return { ok: false, message: '请先添加或查询模型列表，再选择默认模型' }
+    return { ok: false, message: '请先添加模型列表，再选择默认生图模型' }
   }
   if (!defaultModel) {
-    return { ok: false, message: '请选择默认模型' }
+    return { ok: false, message: '请选择默认生图模型' }
   }
   if (!models.includes(defaultModel)) {
-    return { ok: false, message: '默认模型必须从模型列表中选择' }
-  }
-  if (defaultImageModel && !models.includes(defaultImageModel)) {
     return { ok: false, message: '默认生图模型必须从模型列表中选择' }
   }
 
@@ -473,24 +428,13 @@ function buildPayload() {
     name: form.name.trim(),
     providerType: form.providerType.trim(),
     baseUrl: form.baseUrl.trim(),
-    // 默认模型是后端自动 AI 任务的必填入口，必须来自当前支持模型列表。
+    apiKey: form.apiKey.trim(),
+    // 图片生成接口未传 modelName 时，后端会使用该默认生图模型。
     defaultModel,
-    // 默认生图模型为可选字段；未选择时提交空字符串，明确表达当前未配置生图默认模型。
-    defaultImageModel,
+    models: [...models],
     isEnabled: form.isEnabled,
   }
 
-  payload.apiKey = form.apiKey.trim()
-  const numberFields = [
-    ['maxContextLength', form.maxContextLength],
-    ['maxInputTokens', form.maxInputTokens],
-    ['maxOutputTokens', form.maxOutputTokens],
-  ]
-  for (const [field, value] of numberFields) {
-    const result = appendNumberField(payload, field, value)
-    if (!result.ok) return result
-  }
-  payload.models = [...models]
   if (parsedConfig.value !== undefined) {
     payload.configJson = parsedConfig.value
   } else if (isEdit.value) {
@@ -513,8 +457,8 @@ async function onSubmit() {
   const wasEdit = isEdit.value
   try {
     const res = wasEdit
-      ? await updateAIProvider(activeProviderId.value, payloadResult.value)
-      : await createAIProvider(payloadResult.value)
+      ? await updateImageAIProvider(activeProviderId.value, payloadResult.value)
+      : await createImageAIProvider(payloadResult.value)
     if (res?.code === 0) {
       toast.add({
         severity: 'success',
@@ -551,15 +495,15 @@ async function onEnable(provider) {
 
   enablingId.value = id
   try {
-    const res = await enableAIProvider(id)
+    const res = await enableImageAIProvider(id)
     if (res?.code === 0) {
       toast.add({
         severity: 'success',
         summary: '已启用',
-        detail: provider.name || 'AI 提供商',
+        detail: provider.name || '生图 AI 提供商',
         life: 2200,
       })
-      // 后端会同时关闭其它已启用提供商，成功后必须以服务端列表为准刷新当前页。
+      // 后端会同时关闭其它已启用生图提供商，成功后以服务端列表为准。
       await fetchProviders(page.value)
     } else {
       toast.add({
@@ -586,14 +530,14 @@ function onDelete(provider) {
   if (!id || deletingId.value) return
   confirm.require({
     header: '确认删除',
-    message: `确定要删除 AI 提供商「${provider.name || '未命名'}」吗？`,
+    message: `确定要删除生图 AI 提供商「${provider.name || '未命名'}」吗？`,
     acceptLabel: '删除',
     rejectLabel: '取消',
     acceptClass: 'p-button-danger',
     accept: async () => {
       deletingId.value = id
       try {
-        const res = await deleteAIProvider(id)
+        const res = await deleteImageAIProvider(id)
         if (res?.code === 0) {
           toast.add({ severity: 'success', summary: '已删除', life: 2000 })
           if (activeProviderId.value === id) {
@@ -641,7 +585,7 @@ function goBack() {
 </script>
 
 <template>
-  <main class="ai-provider-page">
+  <main class="image-provider-page">
     <header class="page-header">
       <div>
         <button class="back-button" type="button" @click="goBack">
@@ -650,8 +594,8 @@ function goBack() {
           </svg>
           返回书架
         </button>
-        <h1>AI 设置</h1>
-        <p>管理小说生成和辅助创作使用的 AI 提供商。</p>
+        <h1>生图AI设置</h1>
+        <p>管理图片生成专用 AI 提供商，供角色形象、封面和插图生成使用。</p>
       </div>
 
       <button class="new-button" type="button" @click="openCreate">
@@ -663,10 +607,10 @@ function goBack() {
     </header>
 
     <section class="workspace">
-      <section class="provider-list" aria-labelledby="provider-list-title">
+      <section class="provider-list" aria-labelledby="image-provider-list-title">
         <div class="list-head">
           <div>
-            <h2 id="provider-list-title">提供商列表</h2>
+            <h2 id="image-provider-list-title">生图提供商列表</h2>
             <span v-if="initialLoaded">{{ total }} 个提供商</span>
           </div>
           <button
@@ -679,8 +623,8 @@ function goBack() {
           </button>
         </div>
 
-        <div v-if="!initialLoaded" class="table-skeleton" aria-live="polite">
-          <span v-for="i in 7" :key="i"></span>
+        <div v-if="loading && !initialLoaded" class="table-skeleton" aria-hidden="true">
+          <span v-for="item in 5" :key="item"></span>
         </div>
 
         <div v-else-if="loadError" class="state-panel">
@@ -689,9 +633,9 @@ function goBack() {
           <button class="state-button" type="button" @click="fetchProviders(page)">重试</button>
         </div>
 
-        <div v-else-if="providers.length === 0" class="state-panel">
-          <h3>还没有 AI 提供商</h3>
-          <p>新增第一个提供商后，创作功能就能复用这组配置。</p>
+        <div v-else-if="initialLoaded && providers.length === 0" class="state-panel">
+          <h3>还没有生图 AI 提供商</h3>
+          <p>添加一个 OpenAI 兼容的图片生成提供商后，就可以为后续生图能力配置默认模型。</p>
           <button class="state-button" type="button" @click="openCreate">新增提供商</button>
         </div>
 
@@ -705,9 +649,6 @@ function goBack() {
                 <th>模型</th>
                 <th>API Key</th>
                 <th>状态</th>
-                <th>上下文</th>
-                <th>输入上限</th>
-                <th>输出上限</th>
                 <th>更新时间</th>
                 <th>操作</th>
               </tr>
@@ -715,8 +656,8 @@ function goBack() {
             <tbody>
               <tr
                 v-for="provider in providers"
-                :key="providerIdOf(provider)"
-                :class="{ active: providerIdOf(provider) === activeProviderId }"
+                :key="provider.id"
+                :class="{ active: activeProviderId === provider.id }"
               >
                 <td data-label="名称">
                   <strong>{{ provider.name || '未命名' }}</strong>
@@ -731,8 +672,9 @@ function goBack() {
                       v-for="model in visibleProviderModels(provider)"
                       :key="model"
                       class="model-pill"
+                      :class="{ default: model === provider.defaultModel }"
                     >
-                      {{ model }}
+                      {{ model === provider.defaultModel ? `${model} 默认` : model }}
                     </span>
                     <span v-if="hiddenProviderModelCount(provider) > 0" class="model-pill more">
                       +{{ hiddenProviderModelCount(provider) }}
@@ -761,9 +703,6 @@ function goBack() {
                     {{ provider.isEnabled === false ? '停用' : '启用' }}
                   </span>
                 </td>
-                <td data-label="上下文">{{ provider.maxContextLength ?? '未设置' }}</td>
-                <td data-label="输入上限">{{ provider.maxInputTokens ?? '未设置' }}</td>
-                <td data-label="输出上限">{{ provider.maxOutputTokens ?? '未设置' }}</td>
                 <td data-label="更新时间">{{ displayUpdatedAt(provider) }}</td>
                 <td data-label="操作">
                   <div class="row-actions">
@@ -774,7 +713,7 @@ function goBack() {
                     >
                       {{ enablingId === providerIdOf(provider) ? '启用中' : '启用' }}
                     </button>
-                    <button type="button" @click="openEdit(provider)">修改</button>
+                    <button type="button" @click="openEdit(provider)">编辑</button>
                     <button
                       class="danger"
                       type="button"
@@ -790,7 +729,7 @@ function goBack() {
           </table>
         </div>
 
-        <nav v-if="initialLoaded && total > 0" class="pager" aria-label="AI 提供商分页">
+        <nav v-if="initialLoaded && total > 0" class="pager" aria-label="生图 AI 提供商分页">
           <button type="button" :disabled="loading || page <= 1" @click="changePage(page - 1)">
             上一页
           </button>
@@ -800,7 +739,6 @@ function goBack() {
             type="button"
             :class="{ current: pageNo === page }"
             :disabled="loading || pageNo === page"
-            :aria-current="pageNo === page ? 'page' : undefined"
             @click="changePage(pageNo)"
           >
             {{ pageNo }}
@@ -816,7 +754,7 @@ function goBack() {
       </section>
     </section>
 
-    <!-- PrimeVue Dialog 内置关闭按钮会渲染 PrimeVue Button，当前构建环境下会触发 renderSlot 的 ce 空引用。 -->
+    <!-- PrimeVue Dialog 内置关闭按钮会渲染 PrimeVue Button，这里统一使用原生按钮规避运行时 slot 异常。 -->
     <Dialog
       v-model:visible="showEditor"
       :header="formTitle"
@@ -824,7 +762,7 @@ function goBack() {
       :draggable="false"
       :closable="false"
       :style="{ width: '680px', maxWidth: 'calc(100vw - 32px)' }"
-      class="provider-dialog"
+      class="image-provider-dialog"
       @hide="onEditorHide"
     >
       <div class="editor-head">
@@ -850,7 +788,7 @@ function goBack() {
             v-model="form.name"
             type="text"
             autocomplete="off"
-            placeholder="例如 OpenAI 主账号"
+            placeholder="例如 OpenAI Images"
           />
         </label>
 
@@ -880,8 +818,8 @@ function goBack() {
             <input
               v-model="form.apiKey"
               :type="showFormApiKey ? 'text' : 'password'"
-              autocomplete="new-password"
-              :placeholder="isEdit ? '正在读取详情中的 API Key' : '请输入 API Key'"
+              autocomplete="off"
+              placeholder="请输入 API Key"
             />
             <button
               class="secret-toggle"
@@ -896,7 +834,7 @@ function goBack() {
 
         <div class="model-field">
           <div class="model-field-head">
-            <span>模型</span>
+            <span>生图模型</span>
             <button
               class="query-model-button"
               type="button"
@@ -906,7 +844,7 @@ function goBack() {
               {{ modelQuerying ? '查询中' : '查询模型' }}
             </button>
           </div>
-
+          <small class="field-hint">可手动添加模型 ID，也可使用当前连接信息查询上游模型。</small>
           <div class="model-input-box">
             <span v-for="model in form.models" :key="model" class="model-chip">
               {{ model }}
@@ -918,7 +856,7 @@ function goBack() {
               v-model="modelInput"
               type="text"
               autocomplete="off"
-              :placeholder="form.models.length > 0 ? '继续输入模型' : 'gpt-4o, deepseek-chat'"
+              :placeholder="form.models.length > 0 ? '继续输入模型' : 'gpt-image-1, dall-e-3'"
               @input="onModelInput"
               @keydown="onModelKeydown"
               @blur="commitModelInput"
@@ -940,10 +878,10 @@ function goBack() {
         </div>
 
         <label class="line-field">
-          <span>默认模型 <em>*</em></span>
+          <span>默认生图模型 <em>*</em></span>
           <select v-model="form.defaultModel" :disabled="defaultModelOptions.length === 0">
             <option value="" disabled>
-              {{ defaultModelOptions.length === 0 ? '请先添加模型列表' : '请选择默认模型' }}
+              {{ defaultModelOptions.length === 0 ? '请先添加模型列表' : '请选择默认生图模型' }}
             </option>
             <option v-for="model in defaultModelOptions" :key="model" :value="model">
               {{ model }}
@@ -952,65 +890,11 @@ function goBack() {
           <small class="field-hint">
             {{
               defaultModelOptions.length === 0
-                ? '请先在上方模型列表中添加或查询模型，再选择默认模型。'
-                : '默认模型只能从当前模型列表中选择。'
+                ? '请先在上方模型列表中添加模型，再选择默认生图模型。'
+                : '默认生图模型只能从当前模型列表中选择。'
             }}
           </small>
         </label>
-
-        <label class="line-field">
-          <span>默认生图模型</span>
-          <select v-model="form.defaultImageModel" :disabled="defaultModelOptions.length === 0">
-            <option value="">
-              {{ defaultModelOptions.length === 0 ? '请先添加模型列表' : '不配置默认生图模型' }}
-            </option>
-            <option v-for="model in defaultModelOptions" :key="`image-${model}`" :value="model">
-              {{ model }}
-            </option>
-          </select>
-          <small class="field-hint">
-            {{
-              defaultModelOptions.length === 0
-                ? '请先在上方模型列表中添加或查询模型，再选择默认生图模型。'
-                : '默认生图模型为可选项，只能从当前模型列表中选择。'
-            }}
-          </small>
-        </label>
-
-        <div class="token-fields">
-          <label class="line-field">
-            <span>最大上下文长度</span>
-            <input
-              v-model="form.maxContextLength"
-              type="number"
-              min="0"
-              step="1"
-              inputmode="numeric"
-            />
-          </label>
-
-          <label class="line-field">
-            <span>最大输入令牌数</span>
-            <input
-              v-model="form.maxInputTokens"
-              type="number"
-              min="0"
-              step="1"
-              inputmode="numeric"
-            />
-          </label>
-
-          <label class="line-field">
-            <span>最大输出令牌数</span>
-            <input
-              v-model="form.maxOutputTokens"
-              type="number"
-              min="0"
-              step="1"
-              inputmode="numeric"
-            />
-          </label>
-        </div>
 
         <div class="split-fields">
           <label class="switch-field">
@@ -1025,7 +909,7 @@ function goBack() {
             v-model="form.configJson"
             rows="7"
             spellcheck="false"
-            placeholder='例如：{"model":"gpt-4.1"}'
+            placeholder='例如：{"size":"1024x1024"}'
           ></textarea>
         </label>
       </form>
@@ -1043,7 +927,7 @@ function goBack() {
 </template>
 
 <style scoped>
-.ai-provider-page {
+.image-provider-page {
   min-height: 100vh;
   padding: 36px 48px 56px;
   background:
@@ -1164,16 +1048,13 @@ function goBack() {
 }
 
 .provider-list {
+  overflow: hidden;
   border: 1px solid oklch(88.5% 0.012 250);
   border-radius: 16px;
   background: oklch(99.4% 0.003 250);
   box-shadow:
     0 18px 48px oklch(42% 0.035 260 / 0.09),
     0 1px 2px oklch(42% 0.035 260 / 0.06);
-}
-
-.provider-list {
-  overflow: hidden;
 }
 
 .list-head,
@@ -1186,8 +1067,7 @@ function goBack() {
   border-bottom: 1px solid oklch(91% 0.009 250);
 }
 
-.list-head h2,
-.editor-head h2 {
+.list-head h2 {
   margin: 0;
   color: oklch(24% 0.03 260);
   font-size: 1.24rem;
@@ -1197,22 +1077,22 @@ function goBack() {
 
 .list-head span,
 .editor-head p,
-.editor-head > span {
+.editor-head-actions span {
   color: oklch(52% 0.03 260);
   font-size: 0.82rem;
   font-weight: 760;
+}
+
+.editor-head p {
+  margin: 0;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .editor-head-actions {
   display: inline-flex;
   align-items: center;
   gap: 12px;
-}
-
-.editor-head-actions span {
-  color: oklch(52% 0.03 260);
-  font-size: 0.82rem;
-  font-weight: 760;
 }
 
 .dialog-close-button {
@@ -1228,19 +1108,11 @@ function goBack() {
   line-height: 1;
 }
 
-.dialog-close-button:hover:not(:disabled) {
-  border-color: oklch(70% 0.075 250);
-  background: oklch(95.5% 0.02 250);
-  color: oklch(46% 0.16 252);
-}
-
-.editor-head p {
-  margin: 0;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.refresh-button {
+.refresh-button,
+.icon-action,
+.secret-toggle,
+.query-model-button,
+.ghost-button {
   min-height: 38px;
   padding: 0 14px;
   border: 1px solid oklch(83% 0.018 250);
@@ -1248,7 +1120,13 @@ function goBack() {
   color: oklch(42% 0.035 260);
 }
 
-.refresh-button:hover:not(:disabled) {
+.refresh-button:hover:not(:disabled),
+.icon-action:hover,
+.secret-toggle:hover,
+.secret-toggle[aria-pressed='true'],
+.query-model-button:hover:not(:disabled),
+.ghost-button:hover:not(:disabled),
+.dialog-close-button:hover:not(:disabled) {
   border-color: oklch(70% 0.075 250);
   background: oklch(95.5% 0.02 250);
   color: oklch(46% 0.16 252);
@@ -1258,6 +1136,8 @@ function goBack() {
 .submit-button:disabled,
 .ghost-button:disabled,
 .dialog-close-button:disabled,
+.query-model-button:disabled,
+.model-candidates button:disabled,
 .pager button:disabled,
 .row-actions button:disabled {
   cursor: not-allowed;
@@ -1272,13 +1152,13 @@ function goBack() {
 
 table {
   width: 100%;
-  min-width: 1320px;
+  min-width: 1180px;
   border-collapse: collapse;
 }
 
 th,
 td {
-  padding: 18px 18px;
+  padding: 18px;
   border-bottom: 1px solid oklch(91.5% 0.008 250);
   text-align: left;
   vertical-align: middle;
@@ -1329,14 +1209,14 @@ td strong {
 
 .model-list-cell {
   display: flex;
-  max-width: 18rem;
+  max-width: 20rem;
   flex-wrap: wrap;
   gap: 6px;
 }
 
 .model-pill {
   min-height: 26px;
-  max-width: 12rem;
+  max-width: 13rem;
   display: inline-flex;
   align-items: center;
   padding: 0 9px;
@@ -1350,6 +1230,11 @@ td strong {
   white-space: nowrap;
 }
 
+.model-pill.default {
+  background: oklch(93.5% 0.032 150);
+  color: oklch(38% 0.13 150);
+}
+
 .model-pill.more {
   background: oklch(91.5% 0.012 260);
   color: oklch(44% 0.03 260);
@@ -1358,9 +1243,7 @@ td strong {
 .key-cell,
 .row-actions,
 .pager,
-.form-actions,
-.split-fields,
-.token-fields {
+.split-fields {
   display: flex;
   align-items: center;
 }
@@ -1383,20 +1266,6 @@ td strong {
 .key-cell code.masked {
   color: oklch(13% 0.008 260);
   letter-spacing: 0.12em;
-}
-
-.icon-action {
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid oklch(84% 0.014 250);
-  background: oklch(98% 0.006 250);
-  color: oklch(42% 0.035 260);
-  font-size: 0.78rem;
-}
-
-.icon-action:hover {
-  border-color: oklch(70% 0.075 250);
-  color: oklch(46% 0.16 252);
 }
 
 .status-pill {
@@ -1428,7 +1297,7 @@ td strong {
   color: oklch(46% 0.15 252);
 }
 
-.row-actions button:hover {
+.row-actions button:hover:not(:disabled) {
   background: oklch(94.5% 0.02 250);
 }
 
@@ -1436,7 +1305,7 @@ td strong {
   color: oklch(53% 0.19 24);
 }
 
-.row-actions .danger:hover {
+.row-actions .danger:hover:not(:disabled) {
   background: oklch(96% 0.022 24);
 }
 
@@ -1530,12 +1399,14 @@ td strong {
   padding: 24px 28px 28px;
 }
 
-.line-field {
+.line-field,
+.model-field {
   display: grid;
   gap: 8px;
 }
 
 .line-field > span,
+.model-field-head > span,
 .switch-field span {
   color: oklch(36% 0.035 260);
   font-size: 0.86rem;
@@ -1547,7 +1418,7 @@ td strong {
   font-style: normal;
 }
 
-/* 表单控件用下划线和浅底表达可输入状态，避免厚重输入框边界。 */
+/* 表单控件沿用下划线输入风格，和普通 AI 提供商页保持一致。 */
 .line-field input,
 .line-field textarea,
 .line-field select {
@@ -1565,14 +1436,13 @@ td strong {
     box-shadow 0.18s ease;
 }
 
-.line-field input {
+.line-field input,
+.line-field select {
   min-height: 46px;
   padding: 0 2px;
 }
 
 .line-field select {
-  min-height: 46px;
-  padding: 0 2px;
   cursor: pointer;
 }
 
@@ -1589,7 +1459,8 @@ td strong {
 }
 
 .line-field input::placeholder,
-.line-field textarea::placeholder {
+.line-field textarea::placeholder,
+.model-input-box input::placeholder {
   color: oklch(58% 0.028 260);
 }
 
@@ -1623,22 +1494,10 @@ td strong {
 .secret-toggle {
   min-width: 64px;
   min-height: 42px;
-  padding: 0 12px;
-  border: 1px solid oklch(84% 0.014 250);
-  background: oklch(98% 0.006 250);
-  color: oklch(42% 0.035 260);
   font-size: 0.86rem;
 }
 
-.secret-toggle:hover,
-.secret-toggle[aria-pressed='true'] {
-  border-color: oklch(70% 0.075 250);
-  background: oklch(95.5% 0.02 250);
-  color: oklch(46% 0.16 252);
-}
-
 .model-field {
-  display: grid;
   gap: 10px;
 }
 
@@ -1649,31 +1508,9 @@ td strong {
   gap: 12px;
 }
 
-.model-field-head > span {
-  color: oklch(36% 0.035 260);
-  font-size: 0.86rem;
-  font-weight: 780;
-}
-
 .query-model-button {
   min-height: 34px;
-  padding: 0 12px;
-  border: 1px solid oklch(84% 0.014 250);
-  background: oklch(98% 0.006 250);
-  color: oklch(42% 0.035 260);
   font-size: 0.82rem;
-}
-
-.query-model-button:hover:not(:disabled) {
-  border-color: oklch(70% 0.075 250);
-  background: oklch(95.5% 0.02 250);
-  color: oklch(46% 0.16 252);
-}
-
-.query-model-button:disabled,
-.model-candidates button:disabled {
-  cursor: not-allowed;
-  opacity: 0.58;
 }
 
 .model-input-box {
@@ -1743,10 +1580,7 @@ td strong {
   font: inherit;
 }
 
-.model-input-box input::placeholder {
-  color: oklch(58% 0.028 260);
-}
-
+/* 查询模型接口返回的候选项只作为快捷录入入口，用户点击后才写入当前模型列表。 */
 .model-candidates {
   display: flex;
   flex-wrap: wrap;
@@ -1783,18 +1617,6 @@ td strong {
 .split-fields {
   gap: 18px;
   align-items: end;
-}
-
-.token-fields {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-  align-items: end;
-}
-
-.split-fields .line-field,
-.token-fields .line-field {
-  flex: 1 1 0;
 }
 
 .switch-field {
@@ -1840,26 +1662,10 @@ td strong {
   transform: translateX(18px);
 }
 
-.form-actions {
-  justify-content: flex-end;
-  gap: 12px;
-  padding-top: 4px;
-}
-
 .ghost-button,
 .submit-button {
   min-height: 44px;
   padding: 0 18px;
-}
-
-.ghost-button {
-  border: 1px solid oklch(84% 0.014 250);
-  background: transparent;
-  color: oklch(42% 0.035 260);
-}
-
-.ghost-button:hover:not(:disabled) {
-  background: oklch(94.5% 0.014 250);
 }
 
 .back-button:focus-visible,
@@ -1885,13 +1691,13 @@ td strong {
   outline-offset: 3px;
 }
 
-/* PrimeVue Dialog 渲染在全局浮层里，这里只覆盖 AI 提供商弹窗，避免影响其它页面弹窗。 */
-:global(.p-dialog-mask:has(.provider-dialog)) {
+/* PrimeVue Dialog 渲染在全局浮层里，这里只覆盖生图 AI 提供商弹窗。 */
+:global(.p-dialog-mask:has(.image-provider-dialog)) {
   background: oklch(20% 0.035 260 / 0.26);
   backdrop-filter: blur(3px);
 }
 
-:global(.provider-dialog.p-dialog) {
+:global(.image-provider-dialog.p-dialog) {
   overflow: hidden;
   border: 1px solid oklch(87% 0.014 250);
   border-radius: 16px;
@@ -1902,44 +1708,35 @@ td strong {
     0 1px 2px oklch(34% 0.045 260 / 0.1);
 }
 
-:global(.provider-dialog .p-dialog-header),
-:global(.provider-dialog .p-dialog-content),
-:global(.provider-dialog .p-dialog-footer) {
+:global(.image-provider-dialog .p-dialog-header),
+:global(.image-provider-dialog .p-dialog-content),
+:global(.image-provider-dialog .p-dialog-footer) {
   background: oklch(99.4% 0.003 250);
   color: oklch(24% 0.03 260);
 }
 
-:global(.provider-dialog .p-dialog-header) {
+:global(.image-provider-dialog .p-dialog-header) {
   padding: 22px 28px 16px;
   border-bottom: 1px solid oklch(91% 0.009 250);
 }
 
-:global(.provider-dialog .p-dialog-title) {
+:global(.image-provider-dialog .p-dialog-title) {
   font-size: 1.12rem;
   font-weight: 800;
 }
 
-:global(.provider-dialog .p-dialog-content) {
+:global(.image-provider-dialog .p-dialog-content) {
   padding: 0;
 }
 
-:global(.provider-dialog .p-dialog-footer) {
+:global(.image-provider-dialog .p-dialog-footer) {
   gap: 12px;
   padding: 16px 28px 24px;
   border-top: 1px solid oklch(91% 0.009 250);
 }
 
-:global(.provider-dialog .p-dialog-header-icon) {
-  color: oklch(42% 0.035 260);
-}
-
-:global(.provider-dialog .p-dialog-header-icon:hover) {
-  background: oklch(94.5% 0.014 250);
-  color: oklch(46% 0.16 252);
-}
-
 @media (max-width: 1180px) {
-  .ai-provider-page {
+  .image-provider-page {
     padding-inline: 28px;
   }
 }
@@ -2003,21 +1800,16 @@ td strong {
 }
 
 @media (max-width: 720px) {
-  .ai-provider-page {
+  .image-provider-page {
     padding: 24px 16px 36px;
   }
 
   .page-header,
   .list-head,
   .editor-head,
-  .split-fields,
-  .form-actions {
+  .split-fields {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .token-fields {
-    grid-template-columns: 1fr;
   }
 
   .page-header h1 {
@@ -2046,6 +1838,30 @@ td strong {
 
   .pager {
     flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .table-skeleton span {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+  }
+
+  .back-button,
+  .new-button,
+  .refresh-button,
+  .state-button,
+  .row-actions button,
+  .icon-action,
+  .pager button,
+  .ghost-button,
+  .submit-button,
+  .secret-toggle,
+  .query-model-button,
+  .dialog-close-button,
+  .model-chip button,
+  .model-candidates button {
+    transition-duration: 0.01ms;
   }
 }
 </style>

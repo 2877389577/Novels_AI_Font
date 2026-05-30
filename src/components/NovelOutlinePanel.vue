@@ -2,7 +2,6 @@
 import { computed, ref, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import Button from 'primevue/button'
 import { useToast } from 'primevue/usetoast'
 import { getNovelOutline, saveNovelOutline } from '@/api/novel'
 
@@ -105,12 +104,14 @@ watch(
         <p>{{ outlineWordCount }} 字</p>
       </div>
 
-      <Button
-        label="保存大纲"
-        :loading="saving"
+      <button
+        class="outline-button primary"
+        type="button"
         :disabled="loading || saving || !dirty"
         @click="onSaveOutline"
-      />
+      >
+        {{ saving ? '保存中...' : '保存大纲' }}
+      </button>
     </header>
 
     <div v-if="loading" class="outline-skeleton" aria-live="polite">
@@ -123,7 +124,7 @@ watch(
     <div v-else-if="loadError" class="outline-error">
       <strong>大纲加载失败</strong>
       <p>{{ loadError }}</p>
-      <Button label="重试" text @click="fetchOutline" />
+      <button class="outline-button" type="button" @click="fetchOutline">重试</button>
     </div>
 
     <div v-else class="outline-workspace">
@@ -185,6 +186,51 @@ watch(
   margin: 5px 0 0;
   color: oklch(49% 0.03 260);
   font-size: 0.86rem;
+}
+
+/* 避开当前 PrimeVue Button 渲染异常，工作台按钮统一用原生 button 承载。 */
+.outline-button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 15px;
+  border: 1px solid oklch(82% 0.024 255);
+  border-radius: 9px;
+  background: oklch(99.4% 0.003 255);
+  color: oklch(38% 0.04 260);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.outline-button.primary {
+  border-color: oklch(58% 0.18 258);
+  background: oklch(57% 0.2 258);
+  color: oklch(99% 0.004 255);
+}
+
+.outline-button:hover {
+  border-color: oklch(70% 0.08 255);
+  background: oklch(95% 0.02 255);
+  color: oklch(48% 0.16 255);
+}
+
+.outline-button.primary:hover {
+  border-color: oklch(50% 0.2 258);
+  background: oklch(51% 0.21 258);
+  color: oklch(99% 0.004 255);
+}
+
+.outline-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.outline-button:focus-visible {
+  outline: 3px solid oklch(76% 0.14 250 / 0.55);
+  outline-offset: 3px;
 }
 
 .outline-workspace {

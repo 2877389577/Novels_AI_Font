@@ -4,7 +4,7 @@
   设计目标：
   1. 只承载本次生成结果预览，不把结果写入现有角色卡列表。
   2. 生成中用轻量骨架和旋转状态表达等待，避免用户误以为页面卡死。
-  3. 结果卡片仅展示默认头像和姓名，点击头像后在同一弹窗内查看接口返回的完整字段。
+  3. 结果卡片会展示角色图生成状态；成功返回图片 URL 后再保存到角色的 appearanceImgUrl。
 -->
 
 <script setup>
@@ -71,7 +71,12 @@ const isSelectedCardSaved = computed(() => {
   return Boolean(selectedCardKey.value) && savedCardKeys.value.has(selectedCardKey.value)
 })
 
+const isSelectedCardImageLoading = computed(() => {
+  return imageStatusOf(selectedCard.value) === 'loading'
+})
+
 const saveButtonText = computed(() => {
+  if (isSelectedCardImageLoading.value) return '生图中'
   if (isSavingSelectedCard.value) return '保存中'
   if (isSelectedCardSaved.value) return '已保存'
   return '保存角色卡'
@@ -105,7 +110,29 @@ function normalizeGender(gender = '') {
 }
 
 function avatarOf(card = {}) {
+  const imageUrl = String(card.appearanceImgUrl || '').trim()
+  if (imageUrl) return imageUrl
   return normalizeGender(card.gender) === '女' ? femaleAvatar : maleAvatar
+}
+
+function avatarAltOf(card = {}) {
+  const name = cardName(card)
+  return card.appearanceImgUrl ? `${name}形象图` : `${name}默认形象`
+}
+
+function imageStatusOf(card = {}) {
+  if (!card) return ''
+  if (card.__imageStatus) return card.__imageStatus
+  return card.appearanceImgUrl ? 'done' : 'idle'
+}
+
+function imageStatusLabel(card = {}) {
+  const status = imageStatusOf(card)
+  if (status === 'loading') return '图片生成中'
+  if (status === 'done') return '图片已生成'
+  if (status === 'error') return card.__imageError || '图片生成失败'
+  if (status === 'skipped') return card.__imageError || '缺少外貌，未生成图片'
+  return '图片为默认图片'
 }
 
 function cardName(card = {}) {
@@ -137,11 +164,12 @@ function textOrFallback(value) {
 
 function buildSavePayload(card = {}) {
   // 生成接口返回的是角色卡预览；保存时只提交后端角色表需要的业务字段。
-  // 默认形象图只是前端占位资源，不写入 appearanceImgUrl，避免后续被误认为真实角色图片。
+  // appearanceImgUrl 只有在图片生成接口返回真实 URL 时才写入，默认形象图仍只是前端占位。
   const payload = {
     name: cardName(card),
     gender: normalizeGender(card.gender),
     status: 1,
+    appearanceImgUrl: String(card.appearanceImgUrl || '').trim(),
     intro: String(card.intro || '').trim(),
     appearance: String(card.appearance || '').trim(),
     personality: String(card.personality || '').trim(),
@@ -274,8 +302,11 @@ async function saveSelectedCard() {
               :aria-label="`查看 ${cardName(card)} 详情`"
               @click="openDetail(card, index)"
             >
-              <img :src="avatarOf(card)" :alt="`${cardName(card)}默认形象`" />
+              <img :src="avatarOf(card)" :alt="avatarAltOf(card)" />
             </button>
+            <span class="image-status" :data-status="imageStatusOf(card)">
+              {{ imageStatusLabel(card) }}
+            </span>
             <h4>{{ cardName(card) }}</h4>
           </article>
         </TransitionGroup>
@@ -284,8 +315,8 @@ async function saveSelectedCard() {
           <aside v-if="selectedCard" class="generated-detail" aria-label="角色详情">
             <header>
               <div class="detail-avatar">
-                <img :src="avatarOf(selectedCard)" :alt="`${cardName(selectedCard)}默认形象`" />
-                <span>图片为默认图片</span>
+                <img :src="avatarOf(selectedCard)" :alt="avatarAltOf(selectedCard)" />
+                <span>{{ imageStatusLabel(selectedCard) }}</span>
               </div>
               <div>
                 <p>角色详情</p>
@@ -294,7 +325,9 @@ async function saveSelectedCard() {
                 <button
                   class="save-character-button"
                   type="button"
-                  :disabled="isSavingSelectedCard || isSelectedCardSaved"
+                  :disabled="
+                    isSavingSelectedCard || isSelectedCardSaved || isSelectedCardImageLoading
+                  "
                   @click="saveSelectedCard"
                 >
                   {{ saveButtonText }}
@@ -560,6 +593,40 @@ async function saveSelectedCard() {
   font-weight: 800;
   text-align: center;
   overflow-wrap: anywhere;
+}
+
+.image-status {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: center;
+  max-width: 100%;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: oklch(94% 0.014 255);
+  color: oklch(48% 0.035 260);
+  font-size: 0.72rem;
+  font-weight: 780;
+  line-height: 1.2;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.image-status[data-status='loading'] {
+  background: oklch(94% 0.018 255);
+  color: oklch(48% 0.16 255);
+}
+
+.image-status[data-status='done'] {
+  background: oklch(93% 0.026 150);
+  color: oklch(41% 0.13 150);
+}
+
+.image-status[data-status='error'],
+.image-status[data-status='skipped'] {
+  background: oklch(96% 0.022 38);
+  color: oklch(50% 0.16 35);
 }
 
 .generated-detail {

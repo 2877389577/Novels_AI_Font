@@ -12,18 +12,19 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
-import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import { listAIProviderModels } from '@/api/aiProvider'
 import { generateCharacterCards } from '@/api/character'
+import { generateImage } from '@/api/image'
 import { deleteNovel, getNovel, updateNovel } from '@/api/novel'
 import CoverUploader from '@/components/CoverUploader.vue'
 import ChapterList from '@/components/ChapterList.vue'
 import CharacterCardsPanel from '@/components/CharacterCardsPanel.vue'
 import CharacterRelationGraphPanel from '@/components/CharacterRelationGraphPanel.vue'
 import GeneratedCharacterCardsDialog from '@/components/GeneratedCharacterCardsDialog.vue'
+import MindMapPanel from '@/components/MindMapPanel.vue'
 import NovelOutlinePanel from '@/components/NovelOutlinePanel.vue'
 
 const props = defineProps({
@@ -41,6 +42,7 @@ const NOVEL_TAGS = ['玄幻', '东方玄幻']
 const DETAIL_TABS = [
   { key: 'detail', label: '小说详情' },
   { key: 'outline', label: '大纲' },
+  { key: 'mindMap', label: '思维导图' },
   { key: 'characters', label: '角色卡' },
   { key: 'relations', label: '角色关系图' },
 ]
@@ -65,6 +67,7 @@ const showGeneratedCardsDialog = ref(false)
 const generatedCards = ref([])
 const generatingCards = ref(false)
 const generateError = ref('')
+const imageGenerationRunId = ref(0)
 
 // 编辑表单与原始数据解耦：弹窗未保存的改动不会污染详情卡展示。
 const form = reactive({
@@ -125,6 +128,9 @@ const selectedChapterLabel = computed(() => {
 const canStartGeneration = computed(() => {
   return !modelLoading.value && !generatingCards.value && Boolean(selectedModelName.value)
 })
+const isWorkspaceTab = computed(
+  () => activeTab.value === 'outline' || activeTab.value === 'mindMap',
+)
 
 // 将后端数据同步到编辑表单，用于打开弹窗、撤销修改、关闭弹窗后的状态复原。
 function syncForm(n) {
@@ -279,7 +285,9 @@ function toEditChapter(chapter) {
 }
 
 function toChapterPlotAnalysis(payload) {
-  const novelId = Number(payload?.novelId || payload?.chapter?.novelId || novel.value?.id || props.id)
+  const novelId = Number(
+    payload?.novelId || payload?.chapter?.novelId || novel.value?.id || props.id,
+  )
   const chapterId = Number(payload?.chapterId || payload?.chapter?.id)
   if (!Number.isFinite(novelId) || !Number.isFinite(chapterId)) return
   router.push({
@@ -305,8 +313,131 @@ function normalizeModelList(value) {
 function normalizeGeneratedCards(value) {
   // 生成接口按数组一次性返回，这里只过滤掉非对象项，具体字段展示交给结果弹窗兜底。
   return Array.isArray(value)
-    ? value.filter((item) => item && typeof item === 'object').map((item) => ({ ...item }))
+    ? value
+        .filter((item) => item && typeof item === 'object')
+        .map((item) => ({
+          ...item,
+          // 图片生成是角色卡返回后的第二阶段任务，状态放在前端临时字段里，不提交给角色接口。
+          __imageStatus: item.appearanceImgUrl ? 'done' : 'idle',
+          __imageError: '',
+        }))
     : []
+}
+
+function updateGeneratedCardImageState(index, patch) {
+  const card = generatedCards.value[index]
+  if (!card) return
+  Object.assign(card, patch)
+}
+
+function buildCharacterImagePrompt(card = {}) {
+  const appearance = String(card.appearance || '').trim()
+  if (!appearance) return ''
+
+  const name = String(card.name || '小说角色').trim()
+  const gender = String(card.gender || '').trim()
+  const personality = String(card.personality || '').trim()
+  const intro = String(card.intro || '').trim()
+
+  // 提示词只使用角色卡已经返回的信息，核心依据是“外貌描写”，避免前端凭空补充不存在的设定。
+  return [
+    '生成一张小说角色形象图，单人半身角色立绘，画面干净，适合作为角色卡头像。',
+    `角色名称：${name}`,
+    gender ? `性别：${gender}` : '',
+    `外貌描写：${appearance}`,
+    personality ? `性格气质：${personality}` : '',
+    intro ? `角色定位：${intro}` : '',
+    '不要文字、不要水印、不要边框。',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+function extractGeneratedImageUrl(data) {
+  // Apifox 响应体定义为 imageprovider.generateImageResponse；这里兼容常见 URL 字段命名，
+  // 让后端只要返回公开图片地址，前端都能稳定写入 appearanceImgUrl。
+  const candidates = [
+    typeof data === 'string' ? data : '',
+    data?.url,
+    data?.imageUrl,
+    data?.imageURL,
+    data?.appearanceImgUrl,
+    data?.publicUrl,
+    Array.isArray(data?.urls) ? data.urls[0] : '',
+    Array.isArray(data?.images) ? data.images[0]?.url || data.images[0]?.imageUrl : '',
+    data?.data?.url,
+    data?.data?.imageUrl,
+  ]
+  return candidates.map((item) => String(item || '').trim()).find(Boolean) || ''
+}
+
+async function runWithConcurrency(items, limit, worker) {
+  let nextIndex = 0
+  const workerCount = Math.min(Math.max(limit, 1), items.length)
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex
+      nextIndex += 1
+      await worker(items[currentIndex], currentIndex)
+    }
+  })
+  await Promise.all(workers)
+}
+
+async function generateImagesForCards(runId) {
+  const tasks = generatedCards.value.map((card, index) => ({ card, index }))
+  if (tasks.length === 0) return
+
+  let failedCount = 0
+  await runWithConcurrency(tasks, 2, async ({ card, index }) => {
+    if (imageGenerationRunId.value !== runId) return
+
+    const prompt = buildCharacterImagePrompt(card)
+    if (!prompt) {
+      updateGeneratedCardImageState(index, {
+        __imageStatus: 'skipped',
+        __imageError: '角色卡缺少外貌描写，未生成图片。',
+      })
+      return
+    }
+
+    updateGeneratedCardImageState(index, { __imageStatus: 'loading', __imageError: '' })
+    try {
+      const res = await generateImage({ prompt })
+      if (imageGenerationRunId.value !== runId) return
+
+      const imageUrl = res?.code === 0 ? extractGeneratedImageUrl(res.data) : ''
+      if (imageUrl) {
+        updateGeneratedCardImageState(index, {
+          appearanceImgUrl: imageUrl,
+          __imageStatus: 'done',
+          __imageError: '',
+        })
+      } else {
+        failedCount += 1
+        updateGeneratedCardImageState(index, {
+          __imageStatus: 'error',
+          __imageError: res?.msg || '图片生成接口未返回图片地址。',
+        })
+      }
+    } catch (e) {
+      if (imageGenerationRunId.value !== runId) return
+      failedCount += 1
+      updateGeneratedCardImageState(index, {
+        __imageStatus: 'error',
+        __imageError: e?.message || '图片生成失败。',
+      })
+    }
+  })
+
+  if (imageGenerationRunId.value === runId && failedCount > 0) {
+    toast.add({
+      severity: 'warn',
+      summary: '部分角色图片生成失败',
+      detail: `${failedCount} 张图片未生成，仍可先保存角色卡文本信息。`,
+      life: 3600,
+    })
+  }
 }
 
 async function fetchModelOptions() {
@@ -367,11 +498,17 @@ async function startGenerateCharacterCards() {
   generatingCards.value = true
   generatedCards.value = []
   generateError.value = ''
+  imageGenerationRunId.value += 1
 
   try {
     const res = await generateCharacterCards(selectedChapter.value.id, selectedModelName.value)
     if (res?.code === 0) {
       generatedCards.value = normalizeGeneratedCards(res.data)
+      if (generatedCards.value.length > 0) {
+        const runId = imageGenerationRunId.value
+        // 角色卡数组返回后立即进入第二阶段：按外貌描写并发生成角色图，并发上限由队列固定为 2。
+        void generateImagesForCards(runId)
+      }
     } else {
       generateError.value = res?.msg || '角色卡生成失败'
       toast.add({
@@ -400,7 +537,7 @@ function selectDetailTab(tabKey) {
 </script>
 
 <template>
-  <main class="detail" :class="{ 'is-outline-tab': activeTab === 'outline' }">
+  <main class="detail" :class="{ 'is-workspace-tab': isWorkspaceTab }">
     <header class="page-head">
       <div>
         <button class="back-link" type="button" @click="goBack">
@@ -425,7 +562,7 @@ function selectDetailTab(tabKey) {
     <section v-else-if="loadError" class="error-card">
       <h2>小说不存在</h2>
       <p>{{ loadError }}</p>
-      <Button label="返回书架" @click="goBack" />
+      <button class="dialog-button primary" type="button" @click="goBack">返回书架</button>
     </section>
 
     <template v-else-if="novel">
@@ -533,11 +670,21 @@ function selectDetailTab(tabKey) {
       <div
         v-else-if="activeTab === 'outline'"
         id="detail-panel-outline"
-        class="outline-tab-panel"
+        class="workspace-tab-panel"
         role="tabpanel"
         aria-labelledby="detail-tab-outline"
       >
         <NovelOutlinePanel :novel-id="novel.id" />
+      </div>
+
+      <div
+        v-else-if="activeTab === 'mindMap'"
+        id="detail-panel-mindMap"
+        class="workspace-tab-panel"
+        role="tabpanel"
+        aria-labelledby="detail-tab-mindMap"
+      >
+        <MindMapPanel :novel-id="novel.id" :novel-title="novel.title || ''" />
       </div>
 
       <div
@@ -599,9 +746,27 @@ function selectDetailTab(tabKey) {
         </form>
 
         <template #footer>
-          <Button label="撤销修改" text :disabled="!dirty || saving" @click="syncForm(novel)" />
-          <Button label="取消" text :disabled="saving" @click="closeEdit" />
-          <Button label="保存" :disabled="!dirty || saving" :loading="saving" @click="onSave" />
+          <div class="dialog-actions">
+            <button
+              class="dialog-button ghost"
+              type="button"
+              :disabled="!dirty || saving"
+              @click="syncForm(novel)"
+            >
+              撤销修改
+            </button>
+            <button class="dialog-button ghost" type="button" :disabled="saving" @click="closeEdit">
+              取消
+            </button>
+            <button
+              class="dialog-button primary"
+              type="button"
+              :disabled="!dirty || saving"
+              @click="onSave"
+            >
+              {{ saving ? '保存中...' : '保存' }}
+            </button>
+          </div>
         </template>
       </Dialog>
 
@@ -646,7 +811,16 @@ function selectDetailTab(tabKey) {
         </section>
 
         <template #footer>
-          <Button label="取消" text :disabled="modelLoading" @click="closeModelDialog" />
+          <div class="dialog-actions">
+            <button
+              class="dialog-button ghost"
+              type="button"
+              :disabled="modelLoading"
+              @click="closeModelDialog"
+            >
+              取消
+            </button>
+          </div>
         </template>
       </Dialog>
 
@@ -675,29 +849,29 @@ function selectDetailTab(tabKey) {
   font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
 }
 
-.detail.is-outline-tab {
-  /* 大纲是整屏写作工作台：外层锁在当前视口内，滚动交给左右编辑/预览面板。 */
+.detail.is-workspace-tab {
+  /* 大纲和思维导图都是整屏工作台：外层锁在当前视口内，滚动交给内部面板。 */
   height: 100vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-.detail.is-outline-tab .page-head {
+.detail.is-workspace-tab .page-head {
   position: relative;
   width: 100%;
   max-width: none;
   flex: 0 0 auto;
 }
 
-.detail.is-outline-tab .back-link {
-  /* 大纲页头部标题仍居中，但返回入口必须保持在左上角，避免被整屏 flex 布局居中。 */
+.detail.is-workspace-tab .back-link {
+  /* 工作台页头部标题仍居中，但返回入口必须保持在左上角，避免被整屏 flex 布局居中。 */
   position: absolute;
   left: 0;
   top: 0;
 }
 
-.detail.is-outline-tab .page-head > div {
+.detail.is-workspace-tab .page-head > div {
   width: 100%;
   text-align: center;
 }
@@ -995,7 +1169,7 @@ function selectDetailTab(tabKey) {
   margin: 0 auto;
 }
 
-.outline-tab-panel {
+.workspace-tab-panel {
   width: 100%;
   max-width: none;
   min-height: 0;
@@ -1247,6 +1421,64 @@ function selectDetailTab(tabKey) {
   background: oklch(98% 0.008 255);
 }
 
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.dialog-button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  border: 1px solid oklch(82% 0.024 255);
+  border-radius: 9px;
+  background: oklch(99.2% 0.004 255);
+  color: oklch(38% 0.04 260);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 760;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.dialog-button:hover {
+  border-color: oklch(70% 0.08 255);
+  background: oklch(95% 0.02 255);
+  color: oklch(48% 0.16 255);
+  transform: translateY(-1px);
+}
+
+.dialog-button.primary {
+  border-color: oklch(58% 0.18 258);
+  background: oklch(57% 0.2 258);
+  color: oklch(99% 0.004 255);
+}
+
+.dialog-button.primary:hover {
+  border-color: oklch(50% 0.2 258);
+  background: oklch(51% 0.21 258);
+  color: oklch(99% 0.004 255);
+}
+
+.dialog-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
+
+.dialog-button:focus-visible {
+  outline: 3px solid oklch(76% 0.14 250 / 0.55);
+  outline-offset: 3px;
+}
+
 /*
   PrimeVue Dialog 会渲染到浮层层级，组件内部的 header/content/footer
   不会完全吃到本页 scoped 选择器。因此这里用 :global 精准覆盖
@@ -1489,7 +1721,7 @@ function selectDetailTab(tabKey) {
     padding: 24px 18px 32px;
   }
 
-  .detail.is-outline-tab {
+  .detail.is-workspace-tab {
     height: auto;
     min-height: 100vh;
     overflow: visible;
@@ -1505,12 +1737,13 @@ function selectDetailTab(tabKey) {
 
   .detail-tabs {
     width: 100%;
+    flex-wrap: wrap;
     margin-bottom: 14px;
   }
 
   .tab-button {
-    flex: 1 1 0;
-    min-width: 0;
+    flex: 1 1 calc(50% - 6px);
+    min-width: 112px;
   }
 
   .hero-card {

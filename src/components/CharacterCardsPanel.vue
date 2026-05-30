@@ -12,7 +12,6 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
-import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
@@ -145,7 +144,9 @@ const form = reactive({
 const hasMore = computed(() => items.value.length < total.value)
 const dialogTitle = computed(() => (dialogMode.value === 'create' ? '添加角色' : '角色档案'))
 const parsedTags = computed(() => parseTags())
-const dirty = computed(() => dialogMode.value === 'create' || payloadSignature() !== detailSnapshot.value)
+const dirty = computed(
+  () => dialogMode.value === 'create' || payloadSignature() !== detailSnapshot.value,
+)
 
 function resetForm() {
   form.name = ''
@@ -521,7 +522,7 @@ onMounted(refreshCharacters)
 
     <div v-else-if="loadError" class="state-card error">
       <span>{{ loadError }}</span>
-      <Button label="重试" text size="small" @click="refreshCharacters" />
+      <button class="panel-button" type="button" @click="refreshCharacters">重试</button>
     </div>
 
     <div v-else-if="items.length === 0" class="empty-card">
@@ -580,13 +581,14 @@ onMounted(refreshCharacters)
       </div>
 
       <div v-if="hasMore" class="load-more">
-        <Button
-          label="加载更多"
-          text
-          size="small"
-          :loading="loadingMore"
+        <button
+          class="panel-button"
+          type="button"
+          :disabled="loadingMore"
           @click="fetchCharacters({ append: true })"
-        />
+        >
+          {{ loadingMore ? '加载中...' : '加载更多' }}
+        </button>
       </div>
     </template>
 
@@ -596,7 +598,10 @@ onMounted(refreshCharacters)
       :modal="true"
       :draggable="false"
       :closable="!saving"
-      :style="{ width: dialogMode === 'create' ? '640px' : '860px', maxWidth: 'calc(100vw - 32px)' }"
+      :style="{
+        width: dialogMode === 'create' ? '640px' : '860px',
+        maxWidth: 'calc(100vw - 32px)',
+      }"
       class="character-dialog"
     >
       <form class="character-form" :data-mode="dialogMode" @submit.prevent="onSave">
@@ -658,11 +663,7 @@ onMounted(refreshCharacters)
           <section class="profile-hero" :class="{ editing: isSectionEditing('basic') }">
             <div class="profile-portrait">
               <CoverUploader v-if="isSectionEditing('basic')" v-model="form.appearanceImgUrl" />
-              <img
-                v-else
-                :src="characterAvatarSrc(form)"
-                :alt="characterAvatarAlt(form)"
-              />
+              <img v-else :src="characterAvatarSrc(form)" :alt="characterAvatarAlt(form)" />
             </div>
 
             <div class="profile-summary">
@@ -809,13 +810,19 @@ onMounted(refreshCharacters)
       </form>
 
       <template #footer>
-        <Button label="取消" text :disabled="saving" @click="closeDialog" />
-        <Button
-          :label="dialogMode === 'create' ? '创建角色' : '保存修改'"
-          :loading="saving"
-          :disabled="detailLoading || (dialogMode === 'edit' && !dirty)"
-          @click="onSave"
-        />
+        <div class="dialog-actions">
+          <button class="panel-button" type="button" :disabled="saving" @click="closeDialog">
+            取消
+          </button>
+          <button
+            class="panel-button primary"
+            type="button"
+            :disabled="detailLoading || saving || (dialogMode === 'edit' && !dirty)"
+            @click="onSave"
+          >
+            {{ saving ? '保存中...' : dialogMode === 'create' ? '创建角色' : '保存修改' }}
+          </button>
+        </div>
       </template>
     </Dialog>
   </section>
@@ -904,7 +911,55 @@ onMounted(refreshCharacters)
   min-height: 42px;
 }
 
+/* 当前运行环境下 PrimeVue Button 会触发 renderSlot 异常，这里用原生按钮保持弹窗和列表可用。 */
+.panel-button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 15px;
+  border: 1px solid oklch(82% 0.024 255);
+  border-radius: 9px;
+  background: oklch(99.4% 0.003 255);
+  color: oklch(38% 0.04 260);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.panel-button.primary {
+  border-color: oklch(58% 0.18 258);
+  background: oklch(57% 0.2 258);
+  color: oklch(99% 0.004 255);
+}
+
+.panel-button:hover {
+  border-color: oklch(70% 0.08 255);
+  background: oklch(95% 0.02 255);
+  color: oklch(48% 0.16 255);
+}
+
+.panel-button.primary:hover {
+  border-color: oklch(50% 0.2 258);
+  background: oklch(51% 0.21 258);
+  color: oklch(99% 0.004 255);
+}
+
+.panel-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .add-button:focus-visible,
+.panel-button:focus-visible,
 .character-card:focus-visible,
 .delete-character:focus-visible,
 .choice-button:focus-visible,

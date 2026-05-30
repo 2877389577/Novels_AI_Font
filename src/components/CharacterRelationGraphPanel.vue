@@ -12,7 +12,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { VueFlow } from '@vue-flow/core'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
-import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import { getCharacter, listCharacters } from '@/api/character'
 import {
@@ -824,7 +823,7 @@ onBeforeUnmount(() => {
 
     <div v-else-if="graphError" class="graph-state error">
       <span>{{ graphError }}</span>
-      <Button label="重试" text size="small" @click="refreshGraph" />
+      <button class="tool-button" type="button" @click="refreshGraph">重试</button>
     </div>
 
     <div v-else class="graph-workspace">
@@ -983,8 +982,24 @@ onBeforeUnmount(() => {
       </form>
 
       <template #footer>
-        <Button label="取消" text :disabled="relationSaving" @click="closeRelationDialog" />
-        <Button label="保存关系" :loading="relationSaving" @click="savePendingRelation" />
+        <div class="dialog-actions">
+          <button
+            class="tool-button"
+            type="button"
+            :disabled="relationSaving"
+            @click="closeRelationDialog"
+          >
+            取消
+          </button>
+          <button
+            class="tool-button primary"
+            type="button"
+            :disabled="relationSaving"
+            @click="savePendingRelation"
+          >
+            {{ relationSaving ? '保存中...' : '保存关系' }}
+          </button>
+        </div>
       </template>
     </Dialog>
 
@@ -1130,10 +1145,30 @@ onBeforeUnmount(() => {
   transform: translateY(-1px);
 }
 
+/* 关系弹窗也避开 PrimeVue Button，所有操作按钮统一走原生按钮样式。 */
+.tool-button.primary {
+  border-color: oklch(58% 0.18 258);
+  background: oklch(57% 0.2 258);
+  color: oklch(99% 0.004 255);
+}
+
+.tool-button.primary:hover {
+  border-color: oklch(50% 0.2 258);
+  background: oklch(51% 0.21 258);
+  color: oklch(99% 0.004 255);
+}
+
 .tool-button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
   transform: none;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .tool-button:focus-visible,
